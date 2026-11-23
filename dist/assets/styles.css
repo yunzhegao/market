@@ -1,4 +1,10 @@
 @font-face {
+  font-family: Market Inter;
+  src: url("./inter-variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
   font-family: Market Han;
   src: url("./market-han.woff") format("woff");
   font-weight: 400 550;
@@ -12,6 +18,8 @@
 }
 :root {
   color-scheme: light;
+  --font-ui: "Market Inter","Market Han","PingFang SC","Microsoft YaHei",sans-serif;
+  font-synthesis:none;
   --page: #fff;
   --ink: #151a23;
   --muted: #5a6270;
@@ -48,7 +56,7 @@
 }
 *, *::before, *::after {box-sizing:border-box}
 [hidden] {display:none!important}
-body {margin:0;background:var(--page);color:var(--ink);font:400 .875rem/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Market Han,"PingFang SC","Microsoft YaHei",sans-serif}
+body {margin:0;background:var(--page);color:var(--ink);font:400 .875rem/1.35 var(--font-ui)}
 a {color:inherit;text-decoration:none}
 a:hover, .text-button:hover {color:var(--accent);text-decoration:underline;text-underline-offset:.2em}
 button {font:inherit;color:inherit;cursor:pointer}
@@ -60,7 +68,7 @@ p, h1, h2, dl, dd {margin:0}
 .site-header {border-bottom:1px solid var(--line)}
 .header-inner, .header-tools {display:flex;align-items:center;gap:.5rem}
 .header-inner {justify-content:space-between;min-height:42px}
-.header-inner h1 {font-size:1rem;font-weight:750;white-space:nowrap;letter-spacing:-.022em}
+.header-inner h1 {font-size:1rem;font-weight:700;white-space:nowrap;letter-spacing:-.022em}
 .header-tools time {color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums;white-space:nowrap}
 .icon-button, .close-button {display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--line);border-radius:7px;background:var(--page)}
 .icon-button:hover, .close-button:hover {background:var(--subtle);color:var(--accent)}
@@ -80,17 +88,17 @@ p, h1, h2, dl, dd {margin:0}
 .quote-card {grid-area:spym;display:flex;flex-direction:column}
 .quote-info {padding:.7rem .75rem .45rem}
 .quote-name, .quote-value {display:flex;align-items:baseline;gap:.45rem}
-.quote-name h2 {font-size:1.22rem;line-height:1.05;letter-spacing:-.04em}
+.quote-name h2 {font-size:1.22rem;font-weight:650;line-height:1.05;letter-spacing:-.04em}
 .subtle-link, .quote-date {color:var(--muted);font-size:.73rem;white-space:nowrap}
 .quote-value {flex-wrap:wrap;margin-top:.22rem;gap:.12rem .45rem}
-.quote-price {font-size:clamp(1.8rem,3vw,2.5rem);font-weight:730;line-height:1;letter-spacing:-.045em;font-variant-numeric:tabular-nums}
+.quote-price {font-size:clamp(1.8rem,3vw,2.5rem);font-weight:620;line-height:1;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
 .currency {font-size:.64em;margin-right:.08em;font-weight:530;color:var(--muted)}
-.quote-move {font-size:.9rem;font-weight:680;white-space:nowrap;font-variant-numeric:tabular-nums}
+.quote-move {font-size:.9rem;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 .quote-date {margin-top:.25rem}
 .quote-stats {display:flex;flex-wrap:wrap;gap:.22rem .7rem;margin-top:.45rem}
 .quote-stats div {display:flex;gap:.26rem;align-items:baseline}
 .quote-stats dt {color:var(--muted);font-size:.7rem;white-space:nowrap}
-.quote-stats dd {font-size:.76rem;font-weight:670;font-variant-numeric:tabular-nums;white-space:nowrap}
+.quote-stats dd {font-size:.76rem;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .chart-panel {min-width:0;border-top:1px solid var(--line);padding:.4rem .65rem .34rem;margin-top:auto}
 .chart-top, .chart-controls, .chart-bottom {display:flex;align-items:center;gap:.35rem}
 .chart-top, .chart-bottom {justify-content:space-between}
@@ -105,6 +113,7 @@ p, h1, h2, dl, dd {margin:0}
 .chart-readout strong {margin-left:.35rem;color:var(--ink);font-weight:650}
 .chart {height:clamp(105px,21dvh,188px);margin-top:.15rem;min-width:0;touch-action:pan-y;cursor:crosshair}
 .chart svg, .spark svg {display:block;width:100%;height:100%;overflow:visible}
+.chart svg text {font-family:var(--font-ui);font-variant-numeric:tabular-nums}
 .chart-empty, .chart-bottom {color:var(--muted);font-size:.72rem}
 .text-button {padding:0;border:0;background:none;color:var(--accent);font-size:.76rem;font-weight:620;white-space:nowrap}
 .up {color:var(--up)}
@@ -118,21 +127,21 @@ p, h1, h2, dl, dd {margin:0}
 .signal-card {padding:.58rem .68rem;display:flex;flex-direction:column}
 .card-header {display:flex;align-items:baseline;justify-content:space-between;gap:.27rem}
 .card-header h2 {font-size:.88rem;font-weight:720;white-space:nowrap;letter-spacing:-.025em}
-.ticker {color:var(--muted);font-size:.65rem;white-space:nowrap}
+.ticker {color:var(--muted);font-size:.65rem;font-weight:550;white-space:nowrap}
 .reading {display:flex;align-items:baseline;gap:.22rem .3rem;margin-top:.21rem;min-width:0}
-.reading strong {font-size:clamp(1.27rem,2.25vw,2rem);line-height:1.08;font-weight:730;letter-spacing:-.045em;font-variant-numeric:tabular-nums}
+.reading strong {font-size:clamp(1.27rem,2.25vw,2rem);line-height:1.08;font-weight:620;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
 .chip {background:var(--subtle);color:var(--muted);border-radius:4px;padding:.08rem .25rem;font-size:.65rem;font-weight:660;white-space:nowrap}
 .chip:empty {display:none}
 .chip[data-tone="alert"] {background:var(--alert-wash);color:var(--down)}
 .chip[data-tone="warm"] {background:var(--warm-wash);color:var(--warm)}
 .chip[data-tone="calm"] {background:var(--calm-wash);color:var(--up)}
-.metric-unit, .metric-meta {color:var(--muted);font-size:.68rem}
+.metric-unit, .metric-meta {color:var(--muted);font-size:.68rem;font-weight:400}
 .metric-meta {min-height:.88rem;margin-top:.19rem;font-variant-numeric:tabular-nums;white-space:nowrap}
 .spark {height:clamp(18px,4.8dvh,38px);margin-top:.26rem}
 .spark-empty {display:block;color:var(--muted);font-size:.67rem}
 .metric-inline {display:flex;flex-wrap:wrap;gap:.12rem .44rem;font-size:.72rem;margin-top:.16rem}
 .metric-inline span {white-space:nowrap}
-.metric-inline strong {margin-left:.13rem;font-variant-numeric:tabular-nums}
+.metric-inline strong {font-weight:600;margin-left:.13rem;font-variant-numeric:tabular-nums}
 .metric-inline span[data-retained] a {text-decoration:underline dotted}
 .cross-rows {display:grid;margin-top:.14rem;gap:0 .6rem}
 .signal-cross .cross-rows {grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -140,6 +149,7 @@ p, h1, h2, dl, dd {margin:0}
 .cross-name {display:flex;align-items:baseline;gap:.22rem;white-space:nowrap;min-width:0}
 .cross-row a {font-weight:650}
 .cross-row small {color:var(--muted);font-size:.63rem}
+.cross-row strong {font-weight:600}
 .cross-row strong, .cross-row>span {text-align:right;font-variant-numeric:tabular-nums}
 .dashboard-footer {display:flex;flex-wrap:wrap;align-items:center;gap:.23rem .9rem;padding:0 .1rem}
 #sync-status {color:var(--warm);font-size:.73rem}
@@ -262,7 +272,7 @@ dialog::backdrop {background:#15213265}
 .indicator-detail {width:min(94vw,780px)}
 .detail-description {color:var(--muted);margin:.18rem 0 .38rem;font-size:.82rem}
 .detail-reading {display:flex;align-items:baseline;flex-wrap:wrap;gap:.35rem .65rem}
-.detail-reading strong {font-size:clamp(1.5rem,5vw,2.35rem);font-weight:730;line-height:1.12;font-variant-numeric:tabular-nums}
+.detail-reading strong {font-variant-numeric:tabular-nums;font-size:clamp(1.5rem,5vw,2.35rem);font-weight:620;line-height:1.12}
 #indicator-change {font-size:.87rem;font-weight:650}
 #indicator-meta {color:var(--muted);font-size:.74rem}
 .detail-stats {display:flex;flex-wrap:wrap;gap:.22rem .88rem;margin:.46rem 0;font-size:.76rem}
@@ -325,22 +335,4 @@ dialog::backdrop {background:#15213265}
 @media (max-width:480px) {
   .cross-name .cross-time {grid-column:1/-1;grid-row:2}
   .cross-name .cross-time small {grid-column:auto;grid-row:auto}
-}
-
-.source-status {
-  display:inline-block;
-  margin-inline-start:.32rem;
-  padding:.05rem .26rem;
-  border-radius:3px;
-  background:var(--warm-wash);
-  color:var(--warm);
-  font-size:.67rem;
-  line-height:1.3;
-  font-weight:600;
-  white-space:nowrap;
-}
-
-.source-status[data-tone="confirmed"] {
-  background:var(--subtle);
-  color:var(--muted);
 }

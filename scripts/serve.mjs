@@ -7,7 +7,7 @@ const port = Number(process.env.PORT || process.argv[2] || "3000");
 const base = "http://127.0.0.1:" + port;
 const types = {
   html: "text/html; charset=utf-8", css: "text/css; charset=utf-8", js: "text/javascript; charset=utf-8",
-  json: "application/json; charset=utf-8", svg: "image/svg+xml", woff: "font/woff", txt: "text/plain; charset=utf-8",
+  json: "application/json; charset=utf-8", svg: "image/svg+xml", woff: "font/woff", woff2: "font/woff2", txt: "text/plain; charset=utf-8",
 };
 
 async function handle(request) {

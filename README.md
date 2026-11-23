@@ -32,4 +32,4 @@ GitHub Actions 在每周一至周五 14:43、22:43 UTC 更新日线资料，也�
 
 公开行情以各来源提供的报价、时间和更新周期为准。日线脚本仅依赖 Python 标准库，可运行 `python3 scripts/update_market_data.py --check-only` 检查日线来源。
 
-字体使用 Noto Sans CJK SC 的页面子集，授权见 `dist/assets/FONT-LICENSE.txt`。
+英数字体使用 Inter，中文使用 Noto Sans CJK SC 的页面子集。授权见 `dist/assets/INTER-LICENSE.txt` 和 `dist/assets/FONT-LICENSE.txt`。

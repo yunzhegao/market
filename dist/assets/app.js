@@ -43,52 +43,6 @@ const sourceGroups = [
   ["市场报价", [...scopes.spym, ...scopes.indices, ...scopes.cross]],
 ];
 
-const dailyFredKeys = sourceGroups[0][1];
-
-function lastSourceCheck(key) {
-  const dates = [state.observations[key]?.fetchedAt, historical(key).fetchedAt, state.live[key]?.fetchedAt]
-    .map(value => Date.parse(value)).filter(finite);
-  return dates.length ? Math.max(...dates) : NaN;
-}
-
-function sourceStatus(keys, hasValue) {
-  const failed = keys.filter(key => state.sourceChecks[key] === "failed");
-  if (failed.length) {
-    const lastCheck = keys.length === 1 ? lastSourceCheck(keys[0]) : NaN;
-    return {
-      label: "核对失败", tone: "warning",
-      title: (hasValue ? "显示最近可用读数，是否有新值未知。" : "未取到可用读数。")
-        + (finite(lastCheck) ? " 上次成功核对 " + beijingTime.format(lastCheck) + " 北京。" : ""),
-    };
-  }
-  const [key] = keys;
-  if (keys.length === 1 && dailyFredKeys.includes(key) && state.sourceChecks[key]) {
-    const label = state.sourceChecks[key] === "updated" ? "已更新" : "已核对 · 数值未变";
-    return {label, tone: "confirmed", title: "本次成功读取 FRED。"};
-  }
-  return null;
-}
-
-function setSourceBadge(node, status) {
-  node.textContent = status?.label || "";
-  node.title = status?.title || "";
-  node.dataset.tone = status?.tone || "";
-  node.hidden = !status;
-}
-
-function markSource(id, keys, hasValue) {
-  setSourceBadge(byId(id), sourceStatus(keys, hasValue));
-}
-
-function sourceBadge(key, hasValue) {
-  const status = sourceStatus([key], hasValue);
-  if (!status) return "";
-  const span = document.createElement("span");
-  span.className = "source-status";
-  setSourceBadge(span, status);
-  return span.outerHTML;
-}
-
 function failuresLabel() {
   return sourceGroups.flatMap(([name, keys]) => {
     const missing = keys.filter(key => state.sourceChecks[key] === "failed");
@@ -243,7 +197,6 @@ function renderQuote() {
   htmlText("spym-date", quote ? easternTimestamp(quote.time) + " · " + stage
     : point ? point[0] + " 美东收盘" : "暂无报价");
   setAge(byId("spym-age"), quote?.date ?? point?.[0], quote?.time);
-  markSource("spym-source", ["SPYM"], finite(latest));
   htmlText("spym-prev", decimal(before));
   htmlText("spym-open", decimal(quote ? quote.open : point?.[2]));
   const high = quote ? quote.high : point?.[3];
@@ -255,7 +208,7 @@ function renderQuote() {
   updateLink("spym-link", "SPYM");
 }
 
-const axisStyle = 'fill="var(--muted)" font-size="11" font-family="system-ui,sans-serif"';
+const axisStyle = 'fill="var(--muted)" font-size="11"';
 
 function dateLabel(row) {
   return typeof row[0] === "number" ? eastTime.format(row[0]) : shortDate(row[0]);
@@ -523,7 +476,7 @@ function metricList(id, keys, commonDate) {
     const value = marketChange(key);
     const date = live?.date ?? last(data.rows)?.[0];
     const note = date !== commonDate && date ? " <small>" + (live ? quoteTime(live) : shortDate(date)) + "</small>" : "";
-    return '<button class="indicator-trigger metric-button" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span>' + key + '</span><strong class="' + direction(value) + '">' + percentage(value) + '</strong>' + note + sourceBadge(key, finite(value)) + '</button>';
+    return '<button class="indicator-trigger metric-button" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span>' + key + '</span><strong class="' + direction(value) + '">' + percentage(value) + '</strong>' + note + '</button>';
   }).join("");
   updateMetricButtons(id, markup);
 }
@@ -539,7 +492,6 @@ function renderSignals() {
   if (vixLive) htmlText("vix-meta", quoteTime(vixLive) + (vixSuffix ? " · " + vixSuffix : ""));
   else markMeta("vix-meta", vix, vixSuffix);
   setAge(byId("vix-age"), vixLive?.date ?? last(vix.rows)?.[0], vixLive?.time);
-  markSource("vix-source", ["VIX"], finite(volatility));
   spark("vix-spark", withQuote(vix.rows, vixLive), "VIX · 点", n => decimal(n) + " 点", "var(--down)");
 
   const fear = series("FEAR");
@@ -552,7 +504,6 @@ function renderSignals() {
   else markMeta("fear-meta", fear, fearSuffix);
   const fearTime = Date.parse(fear.timestamp);
   setAge(byId("fear-age"), last(fear.rows)?.[0], fearTime);
-  markSource("fear-source", ["FEAR"], finite(mood));
   const fearPoints = finite(fearTime) ? withQuote(fear.rows, {date: last(fear.rows)?.[0], price: mood, time: fearTime}) : fear.rows;
   spark("fear-spark", fearPoints, "恐贪 · 0–100", n => decimal(n, 1) + " 分", "var(--down)");
 
@@ -571,7 +522,6 @@ function renderSignals() {
   if (matched) htmlText("breadth-meta", quoteTime(liveRatio) + " · 比率日变动");
   else markMeta("breadth-meta", {rows: ratio}, "比率日变动");
   setAge(byId("breadth-age"), liveRatio?.date ?? last(ratio)?.[0], liveRatio?.time);
-  markSource("breadth-source", ["RSP", "SPY"], finite(breadth));
   spark("breadth-spark", withQuote(ratio, liveRatio), "RSP / SPY · 价格比", n => decimal(n, 4), "var(--chart-line)");
   metricList("breadth-rows", ["RSP", "SPY", "IWM"], liveRatio?.date ?? last(ratio)?.[0]);
 
@@ -583,7 +533,6 @@ function renderSignals() {
   chip("credit-band", !finite(widening) ? "暂无变化" : widening > .5 ? "利差扩大" : widening < -.5 ? "利差收窄" : "利差持平", widening > .5 ? "warm" : "");
   markMeta("credit-meta", credit, finite(recent) ? "近 5 点 " + signed(recent, 0, " bp") : "");
   setAge(byId("credit-age"), last(credit.rows)?.[0]);
-  markSource("credit-source", ["OAS"], finite(spread));
   spark("credit-spark", credit.rows, "高收益债利差 · bp", n => decimal(n * 100, 0) + " bp", "var(--warm)");
   metricList("credit-rows", ["HYG", "JNK", "KRE"], last(credit.rows)?.[0]);
 
@@ -605,7 +554,7 @@ function renderMarketRows(id, labels) {
     const stamp = live ? quoteTime(live) : shortDate(date);
     const observed = observedAt(date, live?.time);
     const age = observed ? '<small class="data-age" data-observed="' + observed + '">' + dataAge(observed) + '</small>' : "";
-    return '<button class="cross-row indicator-trigger" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span class="cross-name"><b>' + title + '</b><span class="cross-time"><small>' + stamp + '</small>' + age + sourceBadge(key, finite(current)) + '</span></span><strong>' + decimal(current) + (finite(current) ? unit : "") + '</strong><span class="' + direction(value) + '">' + (key === "DGS10" ? signed(value, 0, " bp") : percentage(value)) + '</span></button>';
+    return '<button class="cross-row indicator-trigger" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span class="cross-name"><b>' + title + '</b><span class="cross-time"><small>' + stamp + '</small>' + age + '</span></span><strong>' + decimal(current) + (finite(current) ? unit : "") + '</strong><span class="' + direction(value) + '">' + (key === "DGS10" ? signed(value, 0, " bp") : percentage(value)) + '</span></button>';
   }).join("");
   updateMetricButtons(id, markup);
 }
@@ -656,9 +605,8 @@ function recordCheck(key, quote, observation, fetchedAt) {
     const saved = liveQuote(key);
     const marketDate = last(historical(key).rows)?.[0] || "";
     if (quote.date < marketDate || (saved && quote.time < saved.time)) return "failed";
-    const confirmed = saved && saved.time === quote.time && saved.price === quote.price;
     state.live[key] = {...quote, fetchedAt};
-    return confirmed ? "confirmed" : "updated";
+    return "ok";
   }
   const sample = Array.isArray(observation?.rows) && last(observation.rows);
   if (!sample || !/^\d{4}-\d{2}-\d{2}$/.test(sample[0]) || !finite(sample[1])) return "failed";
@@ -667,9 +615,8 @@ function recordCheck(key, quote, observation, fetchedAt) {
   const prior = last(saved.rows);
   const timestamp = observation.timestamp;
   if ((prior && sample[0] < prior[0]) || (saved.timestamp && !(timestamp >= saved.timestamp))) return "failed";
-  const confirmed = prior && sample[0] === prior[0] && sample[1] === prior[1] && timestamp === saved.timestamp;
   state.observations[key] = {...observation, fetchedAt};
-  return confirmed ? "confirmed" : "updated";
+  return "ok";
 }
 
 async function readScope(scope) {
