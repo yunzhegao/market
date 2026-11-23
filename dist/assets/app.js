@@ -32,6 +32,40 @@ const scopes = {
   cross: ["HYG", "JNK", "KRE", "DXY", "GOLD", "WTI"], observations: ["OAS", "DGS10", "FEAR"],
 };
 
+const indicatorNames = {
+  SPYM: "SPYM", VIX: "VIX 波动率", SPY: "SPY", RSP: "RSP", IWM: "IWM", QQQ: "QQQ",
+  HYG: "HYG", JNK: "JNK", KRE: "KRE", DXY: "美元指数", GOLD: "黄金期货", WTI: "WTI 原油",
+  OAS: "信用利差", DGS10: "十年期美债收益率", FEAR: "恐贪指数",
+};
+const sourceGroups = [
+  ["FRED", ["OAS", "DGS10"]],
+  ["CNN", ["FEAR"]],
+  ["市场报价", [...scopes.spym, ...scopes.indices, ...scopes.cross]],
+];
+
+function sourceStatus(keys, hasValue) {
+  if (!keys.some(key => state.missed.includes(key))) return "";
+  return hasValue ? "沿用旧值" : "暂无数据";
+}
+
+function markSource(id, keys, hasValue) {
+  const badge = byId(id);
+  badge.textContent = sourceStatus(keys, hasValue);
+  badge.hidden = !badge.textContent;
+}
+
+function sourceBadge(key, hasValue) {
+  const label = sourceStatus([key], hasValue);
+  return label ? '<span class="source-status">' + label + '</span>' : "";
+}
+
+function failuresLabel() {
+  return sourceGroups.flatMap(([name, keys]) => {
+    const missing = keys.filter(key => state.missed.includes(key));
+    return missing.length ? [name + "（" + missing.map(key => indicatorNames[key]).join("、") + "）"] : [];
+  }).join("；");
+}
+
 const historical = key => state.data?.series?.[key] || {rows: []};
 const series = key => state.observations[key] || historical(key);
 const liveQuote = key => {
@@ -171,6 +205,7 @@ function renderQuote() {
   htmlText("spym-date", quote ? easternTimestamp(quote.time) + " · " + stage
     : point ? point[0] + " 美东收盘" : "暂无报价");
   setAge(byId("spym-age"), quote?.date ?? point?.[0], quote?.time);
+  markSource("spym-source", ["SPYM"], finite(latest));
   htmlText("spym-prev", decimal(before));
   htmlText("spym-open", decimal(quote ? quote.open : point?.[2]));
   const high = quote ? quote.high : point?.[3];
@@ -450,7 +485,7 @@ function metricList(id, keys, commonDate) {
     const value = marketChange(key);
     const date = live?.date ?? last(data.rows)?.[0];
     const note = date !== commonDate && date ? " <small>" + (live ? quoteTime(live) : shortDate(date)) + "</small>" : "";
-    return '<button class="indicator-trigger metric-button" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span>' + key + '</span><strong class="' + direction(value) + '">' + percentage(value) + '</strong>' + note + '</button>';
+    return '<button class="indicator-trigger metric-button" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span>' + key + '</span><strong class="' + direction(value) + '">' + percentage(value) + '</strong>' + note + sourceBadge(key, finite(value)) + '</button>';
   }).join("");
   updateMetricButtons(id, markup);
 }
@@ -466,6 +501,7 @@ function renderSignals() {
   if (vixLive) htmlText("vix-meta", quoteTime(vixLive) + (vixSuffix ? " · " + vixSuffix : ""));
   else markMeta("vix-meta", vix, vixSuffix);
   setAge(byId("vix-age"), vixLive?.date ?? last(vix.rows)?.[0], vixLive?.time);
+  markSource("vix-source", ["VIX"], finite(volatility));
   spark("vix-spark", withQuote(vix.rows, vixLive), "VIX · 点", n => decimal(n) + " 点", "var(--down)");
 
   const fear = series("FEAR");
@@ -478,6 +514,7 @@ function renderSignals() {
   else markMeta("fear-meta", fear, fearSuffix);
   const fearTime = Date.parse(fear.timestamp);
   setAge(byId("fear-age"), last(fear.rows)?.[0], fearTime);
+  markSource("fear-source", ["FEAR"], finite(mood));
   const fearPoints = finite(fearTime) ? withQuote(fear.rows, {date: last(fear.rows)?.[0], price: mood, time: fearTime}) : fear.rows;
   spark("fear-spark", fearPoints, "恐贪 · 0–100", n => decimal(n, 1) + " 分", "var(--down)");
 
@@ -496,6 +533,7 @@ function renderSignals() {
   if (matched) htmlText("breadth-meta", quoteTime(liveRatio) + " · 比率日变动");
   else markMeta("breadth-meta", {rows: ratio}, "比率日变动");
   setAge(byId("breadth-age"), liveRatio?.date ?? last(ratio)?.[0], liveRatio?.time);
+  markSource("breadth-source", ["RSP", "SPY"], finite(breadth));
   spark("breadth-spark", withQuote(ratio, liveRatio), "RSP / SPY · 价格比", n => decimal(n, 4), "var(--chart-line)");
   metricList("breadth-rows", ["RSP", "SPY", "IWM"], liveRatio?.date ?? last(ratio)?.[0]);
 
@@ -507,6 +545,7 @@ function renderSignals() {
   chip("credit-band", !finite(widening) ? "暂无变化" : widening > .5 ? "利差扩大" : widening < -.5 ? "利差收窄" : "利差持平", widening > .5 ? "warm" : "");
   markMeta("credit-meta", credit, finite(recent) ? "近 5 点 " + signed(recent, 0, " bp") : "");
   setAge(byId("credit-age"), last(credit.rows)?.[0]);
+  markSource("credit-source", ["OAS"], finite(spread));
   spark("credit-spark", credit.rows, "高收益债利差 · bp", n => decimal(n * 100, 0) + " bp", "var(--warm)");
   metricList("credit-rows", ["HYG", "JNK", "KRE"], last(credit.rows)?.[0]);
 
@@ -528,7 +567,7 @@ function renderMarketRows(id, labels) {
     const stamp = live ? quoteTime(live) : shortDate(date);
     const observed = observedAt(date, live?.time);
     const age = observed ? '<small class="data-age" data-observed="' + observed + '">' + dataAge(observed) + '</small>' : "";
-    return '<button class="cross-row indicator-trigger" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span class="cross-name"><b>' + title + '</b><span class="cross-time"><small>' + stamp + '</small>' + age + '</span></span><strong>' + decimal(current) + (finite(current) ? unit : "") + '</strong><span class="' + direction(value) + '">' + (key === "DGS10" ? signed(value, 0, " bp") : percentage(value)) + '</span></button>';
+    return '<button class="cross-row indicator-trigger" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span class="cross-name"><b>' + title + '</b><span class="cross-time"><small>' + stamp + '</small>' + age + sourceBadge(key, finite(current)) + '</span></span><strong>' + decimal(current) + (finite(current) ? unit : "") + '</strong><span class="' + direction(value) + '">' + (key === "DGS10" ? signed(value, 0, " bp") : percentage(value)) + '</span></button>';
   }).join("");
   updateMetricButtons(id, markup);
 }
@@ -543,11 +582,9 @@ function renderStatus() {
     time.title = state.checkedAt ? "本次请求时间（北京时间）" : "随网页发布的快照（北京时间）";
   }
   const status = byId("sync-status");
-  const missed = state.missed;
+  const failures = failuresLabel();
   status.textContent = missingPagesApi ? "GitHub Pages 尚未配置行情接口 · 显示快照"
-    : missed.length === Object.values(scopes).flat().length ? "行情请求失败 · 显示最近可用数据"
-    : missed.length ? "部分来源暂不可用" : "";
-  status.title = missed.join(", ");
+    : failures ? "本次未取到 " + failures : "";
   status.hidden = status.textContent === "";
 }
 
