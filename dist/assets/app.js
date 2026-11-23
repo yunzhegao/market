@@ -24,6 +24,9 @@ const beijingTime = new Intl.DateTimeFormat("zh-CN", {
 const eastTime = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
+const eastDay = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+});
 const eastCalendar = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", timeZoneName: "short",
 });
@@ -50,7 +53,13 @@ function failuresLabel() {
   }).join("；");
 }
 
-const historical = key => state.data?.series?.[key] || {rows: []};
+let spymDailyHistory;
+let spymHistoryRequestDate;
+const historical = key => {
+  const saved = state.data?.series?.[key] || {rows: []};
+  return key === "SPYM" && spymDailyHistory && last(spymDailyHistory.rows)[0] >= (last(saved.rows)?.[0] || "")
+    ? spymDailyHistory : saved;
+};
 const series = key => {
   const cached = historical(key);
   const current = state.observations[key];
@@ -202,10 +211,95 @@ function renderQuote() {
   const high = quote ? quote.high : point?.[3];
   const low = quote ? quote.low : point?.[4];
   htmlText("spym-span", finite(low) && finite(high) ? decimal(low) + " / " + decimal(high) : "—");
-  const month = monthRows(rows);
+  const month = monthRows(withDailyQuote(rows, quote));
   const monthly = month.length > 1 ? pct(latest, month[0][1]) : NaN;
   highlight("spym-month", percentage(monthly), monthly);
   updateLink("spym-link", "SPYM");
+}
+
+function withDailyQuote(rows, quote) {
+  const latest = last(rows);
+  if (!quote || !finite(quote.price) || !finite(quote.time) || quote.date < (latest?.[0] || "")) return rows;
+  if (latest?.[0] === quote.date && finite(quote.sessionEnd)
+      && quote.time < quote.sessionEnd - 60000 && Date.now() >= quote.sessionEnd) return rows;
+  const today = latest?.[0] === quote.date ? latest : [];
+  const trades = (quote.bars || []).filter(row => eastDay.format(row[0]) === quote.date);
+  const prices = trades.flatMap(row => row.slice(1, 5).filter(finite));
+  const open = quote.open ?? trades[0]?.[2] ?? today[2];
+  const highs = [quote.high, today[3], ...prices].filter(finite);
+  const lows = [quote.low, today[4], ...prices].filter(finite);
+  const row = [quote.date, quote.price, open ?? null,
+    highs.length ? Math.max(quote.price, open ?? quote.price, ...highs) : null,
+    lows.length ? Math.min(quote.price, open ?? quote.price, ...lows) : null, quote.time];
+  return [...rows.filter(item => item[0] < quote.date), row];
+}
+
+const fiveDayData = new Map();
+const fiveDayRequests = new Map();
+
+const sessionOffset = key => key === "GOLD" || key === "WTI" ? 6 * 3600000 : 0;
+
+function mergedFiveDayRows(key, quote) {
+  const chart = fiveDayData.get(key);
+  if (!chart) return [];
+  if (!quote || !finite(quote.time) || !finite(quote.price) || quote.time < chart.asOf) return chart.rows;
+  const span = 300000;
+  const bucket = Math.floor(quote.time / span) * span;
+  const lastBar = last(chart.rows);
+  if (bucket < lastBar[0]) return chart.rows;
+  const bars = (quote.bars || []).filter(row => row[0] >= bucket && row[0] <= quote.time && hasOHLC(row));
+  if (bucket === lastBar[0] && hasOHLC(lastBar)) bars.unshift(lastBar);
+  const samples = bars.flatMap(row => row.slice(1, 5));
+  const bar = bars.length
+    ? [bucket, quote.price, bars[0][2], Math.max(quote.price, ...samples), Math.min(quote.price, ...samples), quote.time]
+    : [bucket, quote.price, null, null, null, quote.time];
+  const rows = [...chart.rows.filter(row => row[0] < bucket), bar];
+  const days = rows.map(row => eastDay.format(row[0] + sessionOffset(key)));
+  const start = [...new Set(days)].slice(-5)[0];
+  return rows.slice(days.indexOf(start));
+}
+
+function fetchFiveDays(key) {
+  if (!canFetchMarket) return Promise.resolve();
+  const pending = fiveDayRequests.get(key);
+  if (pending) return pending;
+  const request = (async () => {
+    const response = await fetch(api + "/api/market?scope=chart5&key=" + encodeURIComponent(key),
+      {cache: "no-store", signal: AbortSignal.timeout(20000)});
+    if (!response.ok) return;
+    const {chart} = await response.json();
+    if (!Array.isArray(chart?.rows) || !chart.rows.length || !finite(chart.asOf)
+        || !chart.rows.every(row => Array.isArray(row) && finite(row[0]) && finite(row[1]))) return;
+    if (chart.asOf >= (fiveDayData.get(key)?.asOf || 0)) fiveDayData.set(key, chart);
+  })().catch(() => {}).finally(() => fiveDayRequests.delete(key));
+  fiveDayRequests.set(key, request);
+  return request;
+}
+
+async function refreshFiveDayChart() {
+  const request = fetchFiveDays("SPYM");
+  if (state.range === "5") renderChart();
+  await request;
+  if (state.range === "5") renderChart();
+}
+
+async function refreshSpymHistory() {
+  const date = liveQuote("SPYM")?.date ?? eastDay.format(Date.now());
+  if (!canFetchMarket || spymHistoryRequestDate === date) return;
+  spymHistoryRequestDate = date;
+  try {
+    const response = await fetch(api + "/api/market?scope=detail&key=SPYM",
+      {cache: "no-store", signal: AbortSignal.timeout(20000)});
+    if (!response.ok) throw new Error("日线请求失败");
+    const {detail} = await response.json();
+    const history = detail?.history;
+    if (!Array.isArray(history?.rows) || !history.rows.length) throw new Error("日线暂不可用");
+    if (last(history.rows)[0] >= (last(spymDailyHistory?.rows || [])?.[0] || "")) spymDailyHistory = history;
+    if (acceptQuote(detail?.quote)) recordCheck("SPYM", detail.quote, null, new Date().toISOString());
+    render();
+  } catch {
+    if (spymHistoryRequestDate === date) spymHistoryRequestDate = null;
+  }
 }
 
 const axisStyle = 'fill="var(--muted)" font-size="11"';
@@ -215,7 +309,7 @@ function dateLabel(row) {
 }
 
 function pointTimestamp(row, dailyLabel = "美东交易日") {
-  const time = typeof row[0] === "number" ? row[0] : row[5];
+  const time = finite(row[5]) ? row[5] : row[0];
   if (finite(time)) return easternTimestamp(time);
   return row[0] + " · " + dailyLabel;
 }
@@ -233,7 +327,7 @@ function priceScale(values, top, bottom) {
 const hasOHLC = row => row.slice(2, 5).length === 3 && row.slice(2, 5).every(finite);
 const spymChart = {plot: null, selected: null};
 
-function drawPlot(target, rows, {candle = false, base, history = rows, dailyLabel, axisFormat = n => decimal(n, 1), axisWidth = 38} = {}) {
+function drawPlot(target, rows, {candle = false, base, history = rows, dailyLabel, sessions = false, dayOffset = 0, axisFormat = n => decimal(n, 1), axisWidth = 38} = {}) {
   const points = candle ? rows.filter(hasOHLC) : rows;
   if (!points.length) {
     target.replaceChildren();
@@ -246,7 +340,7 @@ function drawPlot(target, rows, {candle = false, base, history = rows, dailyLabe
   const startTime = points[0][0];
   const endTime = last(points)[0];
   const timeSpan = typeof startTime === "number" ? endTime - startTime : 0;
-  const x = timeSpan > 0
+  const x = !sessions && timeSpan > 0
     ? index => left + step * .5 + (points[index][0] - startTime) / timeSpan * (right - left - step)
     : index => left + step * (index + .5);
   const values = points.flatMap(r => candle ? [r[3], r[4]] : [r[1]]);
@@ -259,11 +353,23 @@ function drawPlot(target, rows, {candle = false, base, history = rows, dailyLabe
     return '<line x1="' + left + '" x2="' + right + '" y1="' + pos + '" y2="' + pos + '" stroke="var(--line)"/><text x="' + (right + 6) + '" y="' + (Number(pos) + 4) + '" ' + axisStyle + '>' + axisFormat(level) + '</text>';
   }).join("");
   const reference = finite(base) ? '<line x1="' + left + '" x2="' + right + '" y1="' + y(base) + '" y2="' + y(base) + '" stroke="var(--chart-guide)" stroke-dasharray="4 3"/>' : "";
+  const sessionDays = sessions ? points.map(row => eastDay.format(row[0] + dayOffset)) : [];
+  const starts = sessionDays.flatMap((day, i) => i === 0 || day !== sessionDays[i - 1] ? [i] : []);
+  const separators = starts.slice(1).map(index => {
+    const pos = (x(index - 1) + x(index)) / 2;
+    return '<line x1="' + pos + '" x2="' + pos + '" y1="' + top + '" y2="' + bottom
+      + '" stroke="var(--line)" stroke-dasharray="3 3"/>';
+  }).join("");
   const count = Math.min(width < 400 ? 4 : 5, points.length);
-  const dateTicks = Array.from({length: count}, (_, i) => {
-    const index = count === 1 ? 0 : Math.round(i * (points.length - 1) / (count - 1));
+  const tickPositions = sessions
+    ? starts.map((start, i) => ({index: Math.floor((start + (starts[i + 1] ?? points.length) - 1) / 2), label: shortDate(sessionDays[start])}))
+    : Array.from({length: count}, (_, i) => {
+      const index = count === 1 ? 0 : Math.round(i * (points.length - 1) / (count - 1));
+      return {index, label: dateLabel(points[index])};
+    });
+  const dateTicks = tickPositions.map(({index, label}) => {
     const pos = Math.max(25, Math.min(right - 7, x(index)));
-    return '<text x="' + pos + '" y="' + (height - 2) + '" text-anchor="middle" ' + axisStyle + '>' + dateLabel(points[index]) + '</text>';
+    return '<text x="' + pos + '" y="' + (height - 2) + '" text-anchor="middle" ' + axisStyle + '>' + label + '</text>';
   }).join("");
   let graphics;
   if (candle) {
@@ -274,12 +380,16 @@ function drawPlot(target, rows, {candle = false, base, history = rows, dailyLabe
       return '<line x1="' + pos + '" x2="' + pos + '" y1="' + y(highPrice) + '" y2="' + y(lowPrice) + '" stroke="' + color + '" stroke-width="1.5"/><rect x="' + (pos - bodyWidth / 2) + '" y="' + y(Math.max(start, end)) + '" width="' + bodyWidth + '" height="' + Math.max(2, Math.abs(y(start) - y(end))) + '" rx="1" fill="' + color + '"/>';
     }).join("");
   } else {
-    const path = points.map((r, i) => (i === 0 ? "M" : "L") + x(i) + "," + y(r[1])).join(" ");
+    const groups = sessions ? starts : [0];
     graphics = '<defs><linearGradient id="' + target.id + '-area" x2="0" y2="1"><stop stop-color="var(--chart-line)" stop-opacity=".18"/><stop offset="1" stop-color="var(--chart-line)" stop-opacity=".02"/></linearGradient></defs>'
-      + '<path fill="url(#' + target.id + '-area)" d="' + path + ' L' + x(points.length - 1) + ',' + bottom + ' L' + x(0) + ',' + bottom + ' Z"/>'
-      + '<path fill="none" stroke="var(--chart-line)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="' + path + '"/>';
+      + groups.map((start, group) => {
+        const end = groups[group + 1] ?? points.length;
+        const path = points.slice(start, end).map((r, i) => (i === 0 ? "M" : "L") + x(start + i) + "," + y(r[1])).join(" ");
+        return '<path fill="url(#' + target.id + '-area)" d="' + path + ' L' + x(end - 1) + ',' + bottom + ' L' + x(start) + ',' + bottom + ' Z"/>'
+          + '<path fill="none" stroke="var(--chart-line)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="' + path + '"/>';
+      }).join("");
   }
-  target.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" aria-hidden="true">' + grid + reference + graphics + dateTicks
+  target.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" aria-hidden="true">' + grid + separators + reference + graphics + dateTicks
     + '<line data-guide stroke="var(--chart-guide)" stroke-opacity=".75" stroke-dasharray="4 3"/><circle data-cursor r="4.1" fill="var(--chart-line)" stroke="var(--page)" stroke-width="1.6"/></svg>';
   const tip = document.createElement("div");
   tip.className = "chart-point-tip";
@@ -383,12 +493,14 @@ function showSpymPoint() {
 }
 
 function renderChart() {
-  const rows = historical("SPYM").rows;
-  const intraday = state.range === "day";
   const quote = liveQuote("SPYM");
-  const active = intraday ? quote?.bars || [] : state.range === "5" ? rows.slice(-5) : monthRows(rows);
+  const rows = withDailyQuote(historical("SPYM").rows, quote);
+  const intraday = state.range === "day";
+  const sessions = state.range === "5";
+  const active = intraday ? quote?.bars || [] : sessions ? mergedFiveDayRows("SPYM", quote) : monthRows(rows);
   const candleButton = document.querySelector('[data-mode="candle"]');
-  candleButton.disabled = !active.some(hasOHLC);
+  const loading = sessions && fiveDayRequests.has("SPYM");
+  candleButton.disabled = !loading && !active.some(hasOHLC);
   if (candleButton.disabled && state.mode === "candle") {
     state.mode = "line";
     candleButton.setAttribute("aria-pressed", "false");
@@ -396,11 +508,13 @@ function renderChart() {
   }
   const base = intraday && quote ? previousClose("SPYM", quote) : null;
   htmlText("chart-unit", intraday ? "美东时间 · " + (finite(base) ? "颜色对比前收，虚线为前收" : "颜色对比前一观测值")
-    : "USD · 未复权 · 颜色对比前一交易日");
-  htmlText("chart-empty", intraday ? "分时数据暂不可用，可查看日线。" : "此区间暂无行情。");
+    : sessions ? "美东时间 · 最近 5 个交易日 · 5 分钟"
+    : "USD · 未复权日线 · 当日点位随报价更新");
+  htmlText("chart-empty", sessions ? (loading ? "正在读取 5 日分时…" : "5 日分时暂不可用。")
+    : intraday ? "分时数据暂不可用，可查看日线。" : "此区间暂无行情。");
   spymChart.plot = drawPlot(byId("price-chart"), active, {
-    candle: state.mode === "candle", base,
-    history: intraday ? active : rows,
+    candle: state.mode === "candle", base, sessions,
+    history: intraday || sessions ? active : rows,
   });
   byId("chart-empty").hidden = Boolean(spymChart.plot);
   showSpymPoint();
@@ -408,9 +522,10 @@ function renderChart() {
 }
 
 function renderTable(rows) {
-  const entries = [...rows].reverse().map(([date, end, start, high, low]) => {
+  const entries = [...rows].reverse().map(([date, end, start, high, low, timestamp]) => {
     const cells = [start, high, low, end].map(n => '<td>' + decimal(n) + '</td>').join("");
-    return '<tr><th scope="row">' + (typeof date === 'number' ? easternTimestamp(date) : date) + '</th>' + cells + '</tr>';
+    const at = finite(timestamp) ? timestamp : date;
+    return '<tr><th scope="row">' + (finite(at) ? easternTimestamp(at) : date) + '</th>' + cells + '</tr>';
   }).join("");
   byId("history-table").innerHTML = '<table class="history-table" aria-label="SPYM 行情数据"><thead><tr><th scope="col">美东时间</th><th scope="col">开盘</th><th scope="col">最高</th><th scope="col">最低</th><th scope="col">收盘</th></tr></thead><tbody>'
     + (entries || '<tr><td colspan="5">暂无数据</td></tr>') + '</tbody></table>';
@@ -650,11 +765,15 @@ async function refresh() {
   button.disabled = true;
   state.checkedAt = new Date().toISOString();
   try {
-    await Promise.all(Object.entries(scopes).map(async ([scope, keys]) => {
+    const requests = Object.entries(scopes).map(async ([scope, keys]) => {
       const checks = await readScope(scope).catch(() => Object.fromEntries(keys.map(key => [key, "failed"])));
       Object.assign(state.sourceChecks, checks);
       render();
-    }));
+    });
+    if (state.range === "5") requests.push(refreshFiveDayChart());
+    await Promise.all(requests);
+    if (state.range === "month") await refreshSpymHistory();
+    document.dispatchEvent(new Event("market-refreshed"));
   } finally {
     button.disabled = false;
   }
@@ -667,7 +786,9 @@ for (const type of ["range", "mode"]) {
       state[type] = button.dataset[type];
       spymChart.selected = null;
       for (const peer of buttons) peer.setAttribute("aria-pressed", peer === button ? "true" : "false");
-      renderChart();
+      if (state.range === "5" && type === "range") refreshFiveDayChart();
+      else renderChart();
+      if (state.range === "month" && type === "range") refreshSpymHistory();
     });
   }
 }

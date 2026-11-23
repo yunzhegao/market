@@ -1,6 +1,4 @@
 {
   "private": true,
-  "scripts": {
-    "dev": "node scripts/serve.mjs"
-  }
+  "scripts": {"dev": "node scripts/serve.mjs"}
 }

@@ -170,9 +170,16 @@ function renderDetail() {
   setAge(age, model.date, model.time);
   meta.append(age);
   renderDetailStats(key, model);
-  const active = range === "day" ? model.bars : range === "5" ? model.rows.slice(-5) : monthRows(model.rows);
+  const observed = observationKeys.has(key);
+  const sessions = range === "5" && !observed;
+  const loadingFiveDays = sessions && fiveDayRequests.has(key);
+  const live = model.quote ?? (key === "BREADTH" && finite(model.time)
+    ? {date: model.date, price: model.value, time: model.time, bars: model.bars} : null);
+  const dailyRows = observed ? model.rows : withDailyQuote(model.rows, live);
+  const active = range === "day" ? model.bars : sessions ? mergedFiveDayRows(key, live)
+    : range === "5" ? dailyRows.slice(-5) : monthRows(dailyRows);
   const canCandle = active.some(hasOHLC);
-  if (!canCandle) detailView.mode = "line";
+  if (!canCandle && !loadingFiveDays) detailView.mode = "line";
   for (const button of rangeButtons) {
     button.hidden = button.dataset.detailRange === "day" && observationKeys.has(key);
     button.disabled = button.dataset.detailRange === "day" && !model.bars.length;
@@ -182,14 +189,15 @@ function renderDetail() {
   for (const button of modeButtons) button.setAttribute("aria-pressed", String(button.dataset.detailMode === detailView.mode));
   const base = range === "day" && !observationKeys.has(key) ? model.before : null;
   const dailyLabel = observationKeys.has(key) ? "观测日" : "美东交易日";
-  detailView.plot = drawPlot(detailChart, active, {candle: detailView.mode === "candle", base, dailyLabel,
-    history: range === "day" ? model.bars : model.rows, axisWidth: unit === "比率" ? 49 : 45,
+  detailView.plot = drawPlot(detailChart, active, {candle: detailView.mode === "candle", base, dailyLabel, sessions,
+    dayOffset: sessionOffset(key), history: range === "day" || sessions ? active : dailyRows, axisWidth: unit === "比率" ? 49 : 45,
     axisFormat: value => decimal(unit === "bp" ? value * 100 : value, unit === "比率" ? 4 : unit === "bp" || unit === "分" ? 0 : 2)});
   const format = unit === "比率" ? "RSP / SPY 价格比" : key === "GOLD" ? "USD／金衡盎司" : key === "WTI" ? "USD／桶" : unit;
   const period = range === "day" ? "美东分时" + (finite(model.interval) ? " · " + model.interval + " 分钟" : "")
-    : observationKeys.has(key) ? "日度观测" : "日线收盘";
+    : sessions ? "最近 5 个交易日 · 5 分钟" : observed ? "日度观测" : "日线 · 当日点位随报价更新";
   htmlText("indicator-legend", period + " · " + format + (finite(base) ? " · 颜色对比前收，虚线为前收" : " · 颜色对比前一观测值"));
-  htmlText("indicator-empty", detailView.loading ? "正在请求图表数据…" : "这个区间暂无可用数据。");
+  htmlText("indicator-empty", detailView.loading || loadingFiveDays ? "正在请求图表数据…"
+    : sessions ? "5 日分时暂不可用。" : "这个区间暂无可用数据。");
   byId("indicator-empty").hidden = Boolean(detailView.plot);
   detailPoint();
   byId("indicator-sources").replaceChildren(...sourceLinks(key).map(([label, url]) => {
@@ -238,12 +246,24 @@ detailDialog.addEventListener("close", () => {
   detailView.key = null;
   hideTip();
 });
+async function refreshDetailChart() {
+  if (!detailDialog.open || !detailView.key) return;
+  const {key, range} = detailView;
+  const request = range === "5" && !observationKeys.has(key) ? fetchFiveDays(key) : null;
+  renderDetail();
+  if (request) {
+    await request;
+    if (detailView.key === key && detailView.range === range) renderDetail();
+  }
+}
+
+document.addEventListener("market-refreshed", refreshDetailChart);
 for (const button of rangeButtons) {
   button.addEventListener("click", () => {
     detailView.range = button.dataset.detailRange;
     detailView.selected = null;
     detailView.manuallyChangedRange = true;
-    renderDetail();
+    refreshDetailChart();
   });
 }
 for (const button of modeButtons) {

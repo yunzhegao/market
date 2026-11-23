@@ -39,14 +39,19 @@ function changeBase(meta, priceNow) {
   return finite(base) && base > 0 ? base : null;
 }
 
-function yahooReading(result, key, interval, detailed) {
-  const meta = result.meta;
+function yahooRows(result) {
   const values = result.indicators?.quote?.[0];
-  if (!meta || !values) throw new Error("missing chart");
-  const rows = (result.timestamp || []).flatMap((seconds, index) => {
+  if (!values) throw new Error("missing chart");
+  return (result.timestamp || []).flatMap((seconds, index) => {
     const valuesAtTime = [values.close[index], values.open?.[index], values.high?.[index], values.low?.[index]];
     return finite(seconds) && finite(valuesAtTime[0]) ? [[seconds * 1000, ...valuesAtTime.map(v => finite(v) ? v : null)]] : [];
   });
+}
+
+function yahooReading(result, key, interval, detailed) {
+  const meta = result.meta;
+  if (!meta) throw new Error("missing chart metadata");
+  const rows = yahooRows(result);
   const shares = stocks.has(key);
   const regular = meta.currentTradingPeriod?.regular;
   const stamp = meta.regularMarketTime * 1000;
@@ -65,9 +70,8 @@ function yahooReading(result, key, interval, detailed) {
   const fromMeta = finite(meta.regularMarketPrice) ? changeBase(meta, meta.regularMarketPrice) : null;
   return {
     price: value, time, date: dayOf(time), source: "yahoo", previous: fromMeta,
-    ...(detailed || key === "SPYM" ? {bars, sessionStart, sessionEnd, interval,
-      open: bars[0]?.[2] ?? null, high: meta.regularMarketDayHigh ?? null, low: meta.regularMarketDayLow ?? null,
-      volume: meta.regularMarketVolume ?? null} : {}),
+    open: bars[0]?.[2] ?? null, high: meta.regularMarketDayHigh ?? null, low: meta.regularMarketDayLow ?? null,
+    ...(detailed || key === "SPYM" ? {bars, sessionStart, sessionEnd, interval, volume: meta.regularMarketVolume ?? null} : {}),
   };
 }
 
@@ -86,6 +90,52 @@ async function fromYahoo(key, hostname, detailed) {
   const interval = key === "SPYM" ? 1 : 5;
   const result = await yahooChart(key, hostname, interval + "m", "1d");
   return yahooReading(result, key, interval, detailed);
+}
+
+const fiveMinute = 5 * 60 * 1000;
+
+function fiveDayRows(result, key) {
+  const raw = yahooRows(result);
+  const slots = new Map();
+  for (const [at, end, open, high, low] of raw) {
+    const slot = Math.floor(at / fiveMinute) * fiveMinute;
+    const previous = slots.get(slot);
+    const [start, peak, floor] = previous?.slice(2, 5) ?? [open, high, low];
+    const range = previous && [start, peak, floor].every(finite)
+      ? [start, Math.max(peak, high ?? end, end), Math.min(floor, low ?? end, end)]
+      : [open, high, low];
+    slots.set(slot, [slot, end, ...range]);
+  }
+  const rows = [...slots.values()].sort((a, b) => a[0] - b[0]);
+  const lastAt = last(raw)?.[0];
+  const newest = last(rows);
+  if (newest && lastAt !== newest[0]) newest[5] = lastAt;
+  const offset = key === "GOLD" || key === "WTI" ? 6 * 3600000 : 0;
+  const sessions = [...new Set(rows.map(row => dayOf(row[0] + offset)))].slice(-5);
+  return {
+    asOf: lastAt,
+    rows: rows.filter(row => sessions.includes(dayOf(row[0] + offset))),
+  };
+}
+
+async function getFiveDays(key) {
+  if (key === "BREADTH") {
+    const [rsp, spy] = await Promise.all(["RSP", "SPY"].map(getFiveDays));
+    if (!rsp || !spy) return null;
+    const spyByTime = new Map(spy.rows.map(row => [row[0], row[1]]));
+    const rows = rsp.rows.flatMap(row => spyByTime.get(row[0]) > 0
+      ? [[row[0], row[1] / spyByTime.get(row[0])]] : []);
+    return rows.length ? {asOf: Math.min(rsp.asOf, spy.asOf), rows} : null;
+  }
+  for (const host of yahooHosts) {
+    try {
+      const history = fiveDayRows(await yahooChart(key, host, "5m", "5d"), key);
+      if (history.rows.length) return history;
+    } catch {
+      // Try the other feed before reporting unavailable data.
+    }
+  }
+  return null;
 }
 
 function dailyRows(chart, key, latest) {
@@ -241,6 +291,14 @@ export default {
     const headers = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store", "Content-Type": "application/json"};
     if (request.method !== "GET") return Response.json({error: "method"}, {status: 405, headers});
     const scope = url.searchParams.get("scope");
+    if (scope === "chart5") {
+      const key = url.searchParams.get("key");
+      if (!Object.hasOwn(market, key) && key !== "BREADTH") {
+        return Response.json({error: "indicator"}, {status: 400, headers});
+      }
+      const chart = await getFiveDays(key);
+      return Response.json({key, chart}, {status: chart ? 200 : 503, headers});
+    }
     if (scope === "detail") {
       const key = url.searchParams.get("key");
       if (!Object.hasOwn(market, key) && !Object.hasOwn(fred, key) && !["BREADTH", "FEAR"].includes(key)) {
