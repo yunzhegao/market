@@ -32,13 +32,14 @@
     </div>
   </header>
   <main class="shell dashboard" id="main">
+    <p id="sync-status" role="status" hidden></p>
     <div class="market-grid">
     <section class="quote-card panel" aria-labelledby="quote-title">
       <div class="quote-info">
         <div class="quote-main">
           <div class="quote-name"><h2 id="quote-title"><button class="indicator-trigger" type="button" data-indicator="SPYM" aria-haspopup="dialog">SPYM</button></h2><span class="subtle-link">NYSE Arca</span></div>
           <div class="quote-value"><div class="quote-price" id="spym-price">—</div><div class="quote-move" id="spym-move">—</div></div>
-          <p class="quote-date" id="spym-date">美东收盘</p>
+          <p class="quote-date"><span id="spym-date">美东收盘</span><span id="spym-age" class="data-age" hidden></span></p>
         </div>
         <dl class="quote-stats">
           <div><dt>前收</dt><dd id="spym-prev">—</dd></div>
@@ -72,7 +73,7 @@
           <button class="indicator-trigger indicator-summary" type="button" data-indicator="VIX" aria-haspopup="dialog">
             <span class="card-header"><span>VIX 波动率</span></span>
             <span class="reading"><strong id="vix-value">—</strong><span class="chip" id="vix-band"></span></span>
-            <span class="metric-meta" id="vix-meta"></span>
+            <span class="metric-timing"><span class="metric-meta" id="vix-meta"></span><span class="data-age" id="vix-age" hidden></span></span>
           </button>
         </h2>
         <button class="spark indicator-trigger" type="button" id="vix-spark" data-indicator="VIX" aria-haspopup="dialog" aria-label="VIX 波动率小折线，左右键查看点位"></button>
@@ -82,7 +83,7 @@
           <button class="indicator-trigger indicator-summary" type="button" data-indicator="FEAR" aria-haspopup="dialog">
             <span class="card-header"><span>恐惧与贪婪</span><span class="ticker">CNN</span></span>
             <span class="reading"><strong id="fear-value">—</strong><span class="chip" id="fear-band"></span></span>
-            <span class="metric-meta" id="fear-meta"></span>
+            <span class="metric-timing"><span class="metric-meta" id="fear-meta"></span><span class="data-age" id="fear-age" hidden></span></span>
           </button>
         </h2>
         <button class="spark indicator-trigger" type="button" id="fear-spark" data-indicator="FEAR" aria-haspopup="dialog" aria-label="恐惧与贪婪小折线，左右键查看点位"></button>
@@ -92,7 +93,7 @@
           <button class="indicator-trigger indicator-summary" type="button" data-indicator="BREADTH" aria-haspopup="dialog">
             <span class="card-header"><span>市场广度</span><span class="ticker">RSP / SPY</span></span>
             <span class="reading"><strong id="breadth-value">—</strong><span class="chip" id="breadth-band"></span></span>
-            <span class="metric-meta" id="breadth-meta"></span>
+            <span class="metric-timing"><span class="metric-meta" id="breadth-meta"></span><span class="data-age" id="breadth-age" hidden></span></span>
           </button>
         </h2>
         <button class="spark indicator-trigger" type="button" id="breadth-spark" data-indicator="BREADTH" aria-haspopup="dialog" aria-label="市场广度小折线，左右键查看点位"></button>
@@ -103,7 +104,7 @@
           <button class="indicator-trigger indicator-summary" type="button" data-indicator="OAS" aria-haspopup="dialog">
             <span class="card-header"><span>信用利差</span><span class="ticker">HY OAS</span></span>
             <span class="reading"><strong id="credit-value">—</strong><span class="metric-unit">bp</span><span class="chip" id="credit-band"></span></span>
-            <span class="metric-meta" id="credit-meta"></span>
+            <span class="metric-timing"><span class="metric-meta" id="credit-meta"></span><span class="data-age" id="credit-age" hidden></span></span>
           </button>
         </h2>
         <button class="spark indicator-trigger" type="button" id="credit-spark" data-indicator="OAS" aria-haspopup="dialog" aria-label="信用利差小折线，左右键查看点位"></button>
@@ -121,7 +122,6 @@
     <footer class="dashboard-footer">
       <button class="text-button" type="button" data-dialog="framework">观察框架</button>
       <button class="text-button" type="button" data-dialog="method">数据口径与来源</button>
-      <span id="sync-status" role="status" hidden></span>
     </footer>
   </main>
   <dialog id="history" aria-labelledby="history-title">
@@ -174,7 +174,7 @@
   <dialog id="method" aria-labelledby="method-title">
     <div class="dialog-header"><h2 id="method-title">数据口径与来源</h2><form method="dialog"><button class="close-button" aria-label="关闭">×</button></form></div>
     <div class="dialog-body method">
-      <p>顶部请求时间用北京时间（UTC+8）。报价时间和分时图使用美东时间。页面打开、恢复可见或点击刷新时请求最新数据，页面可见时每分钟刷新。报价可能延迟，信用利差、国债收益率和恐贪以各自发布频率为准。</p>
+      <p>顶部请求时间用北京时间（UTC+8）。报价时间和分时图使用美东时间。「多久前」按实际报价时间计算，只有日期的日度指标按美东日历日计算。页面打开、恢复可见或点击刷新时请求最新数据，页面可见时每分钟刷新。报价可能延迟，信用利差、国债收益率和恐贪以各自发布频率为准。</p>
       <p>SPYM 分时图使用美股常规时段的 1 分钟报价，横轴只到最近一笔，虚线是前收参考。5 日和 1 月使用未复权日线，近月涨跌与近 30 个自然日内首个收盘价比较。</p>
       <p>市场广度为 RSP / SPY 比率较前一共同交易日的变化。IWM 跟踪小盘股。<a href="https://finviz.com/map.ashx?t=sec" target="_blank" rel="noopener noreferrer">标普 500 成分股热力图</a></p>
       <p>VIX 衡量标普 500 期权隐含的未来 30 天波动。CNN 恐贪指数包含 VIX 和高收益债需求。小折线显示最近最多 20 个观测点。</p>

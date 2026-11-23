@@ -18,7 +18,9 @@ npm run dev
 
 把源码放在 GitHub 仓库的 `main` 分支，并在 **Settings → Pages → Source** 选择 **GitHub Actions**。项目页面也可以放在普通的仓库子路径里。
 
-GitHub Pages 是静态托管。盘中行情通过一个 HTTPS Worker 转发 Yahoo Finance、Nasdaq、CNN 和 FRED 的公开数据。直接从浏览器请求其中部分网站会被跨域限制拦截。本站的私有预览已内置同源行情接口。
+GitHub Pages 是静态托管。如果看到「GitHub Pages 尚未配置行情接口」，先访问当前页面的 `assets/live-config.js` 确认 `apiBase`。空值会显示快照，配置成功后页面才会请求 Worker。直接把网页上传到现有站点的 `market/` 子目录时，应改该子目录里的 `assets/live-config.js`。只有运行随包的发布工作流时，仓库变量才会写入页面配置。
+
+盘中行情通过一个 HTTPS Worker 转发 Yahoo Finance、Nasdaq、CNN 和 FRED 的公开数据。直接从浏览器请求其中部分网站会被跨域限制拦截。本站的私有预览已内置同源行情接口。
 
 如要在自己的 GitHub Pages 接上盘中行情：
 

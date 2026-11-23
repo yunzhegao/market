@@ -109,6 +109,49 @@ function easternTimestamp(time, compact = false) {
   return date + " " + eastTime.format(time) + " " + timeZoneName;
 }
 
+const oneDay = 86400000;
+
+function observedAt(date, time) {
+  if (finite(time) && time > 0) return String(time);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date || "") ? date : "";
+}
+
+function dataAge(value, now = Date.now()) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const today = easternTimestamp(now).slice(0, 10);
+    const days = Math.floor((Date.parse(today) - Date.parse(value)) / oneDay);
+    if (!finite(days) || days < 0) return "日期待核对";
+    return days === 0 ? "今日观测" : days + " 天前";
+  }
+  const elapsed = now - Number(value);
+  if (!finite(elapsed) || elapsed < -60000) return "时间待核对";
+  const minutes = Math.max(0, Math.floor(elapsed / 60000));
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return minutes + " 分钟前";
+  if (minutes < 1440) {
+    const rest = minutes % 60;
+    return Math.floor(minutes / 60) + " 小时" + (rest ? " " + rest + " 分钟" : "") + "前";
+  }
+  const hours = Math.floor(minutes / 60) % 24;
+  return Math.floor(minutes / 1440) + " 天" + (hours ? " " + hours + " 小时" : "") + "前";
+}
+
+function setAge(node, date, time) {
+  const observed = observedAt(date, time);
+  node.dataset.observed = observed;
+  node.textContent = dataAge(observed);
+  node.hidden = !observed;
+}
+
+function refreshAges() {
+  const now = Date.now();
+  for (const node of document.querySelectorAll("[data-observed]")) {
+    const age = dataAge(node.dataset.observed, now);
+    if (node.textContent !== age) node.textContent = age;
+  }
+}
+
 function quoteTime(quote) {
   return easternTimestamp(quote.time, true);
 }
@@ -127,6 +170,7 @@ function renderQuote() {
   const stage = quote && finite(quote.sessionEnd) && quote.time >= quote.sessionEnd - 60000 ? "收盘" : "报价";
   htmlText("spym-date", quote ? easternTimestamp(quote.time) + " · " + stage
     : point ? point[0] + " 美东收盘" : "暂无报价");
+  setAge(byId("spym-age"), quote?.date ?? point?.[0], quote?.time);
   htmlText("spym-prev", decimal(before));
   htmlText("spym-open", decimal(quote ? quote.open : point?.[2]));
   const high = quote ? quote.high : point?.[3];
@@ -421,6 +465,7 @@ function renderSignals() {
   const vixSuffix = finite(vixMove) ? signed(vixMove, 2, " 点") : "";
   if (vixLive) htmlText("vix-meta", quoteTime(vixLive) + (vixSuffix ? " · " + vixSuffix : ""));
   else markMeta("vix-meta", vix, vixSuffix);
+  setAge(byId("vix-age"), vixLive?.date ?? last(vix.rows)?.[0], vixLive?.time);
   spark("vix-spark", withQuote(vix.rows, vixLive), "VIX · 点", n => decimal(n) + " 点", "var(--down)");
 
   const fear = series("FEAR");
@@ -432,6 +477,7 @@ function renderSignals() {
   if (finite(Date.parse(fear.timestamp))) htmlText("fear-meta", easternTimestamp(Date.parse(fear.timestamp), true) + (fearSuffix ? " · " + fearSuffix : ""));
   else markMeta("fear-meta", fear, fearSuffix);
   const fearTime = Date.parse(fear.timestamp);
+  setAge(byId("fear-age"), last(fear.rows)?.[0], fearTime);
   const fearPoints = finite(fearTime) ? withQuote(fear.rows, {date: last(fear.rows)?.[0], price: mood, time: fearTime}) : fear.rows;
   spark("fear-spark", fearPoints, "恐贪 · 0–100", n => decimal(n, 1) + " 分", "var(--down)");
 
@@ -449,6 +495,7 @@ function renderSignals() {
   chip("breadth-band", !finite(breadth) ? "暂无数据" : breadth > 0 ? "等权跑赢" : breadth < 0 ? "等权落后" : "相对持平");
   if (matched) htmlText("breadth-meta", quoteTime(liveRatio) + " · 比率日变动");
   else markMeta("breadth-meta", {rows: ratio}, "比率日变动");
+  setAge(byId("breadth-age"), liveRatio?.date ?? last(ratio)?.[0], liveRatio?.time);
   spark("breadth-spark", withQuote(ratio, liveRatio), "RSP / SPY · 价格比", n => decimal(n, 4), "var(--chart-line)");
   metricList("breadth-rows", ["RSP", "SPY", "IWM"], liveRatio?.date ?? last(ratio)?.[0]);
 
@@ -459,6 +506,7 @@ function renderSignals() {
   htmlText("credit-value", decimal(spread, 0));
   chip("credit-band", !finite(widening) ? "暂无变化" : widening > .5 ? "利差扩大" : widening < -.5 ? "利差收窄" : "利差持平", widening > .5 ? "warm" : "");
   markMeta("credit-meta", credit, finite(recent) ? "近 5 点 " + signed(recent, 0, " bp") : "");
+  setAge(byId("credit-age"), last(credit.rows)?.[0]);
   spark("credit-spark", credit.rows, "高收益债利差 · bp", n => decimal(n * 100, 0) + " bp", "var(--warm)");
   metricList("credit-rows", ["HYG", "JNK", "KRE"], last(credit.rows)?.[0]);
 
@@ -478,7 +526,9 @@ function renderMarketRows(id, labels) {
     const value = key === "DGS10" ? (current - previous(data.rows)) * 100 : marketChange(key);
     const date = live?.date ?? last(data.rows)?.[0];
     const stamp = live ? quoteTime(live) : shortDate(date);
-    return '<button class="cross-row indicator-trigger" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span class="cross-name"><b>' + title + '</b><small>' + stamp + '</small></span><strong>' + decimal(current) + (finite(current) ? unit : "") + '</strong><span class="' + direction(value) + '">' + (key === "DGS10" ? signed(value, 0, " bp") : percentage(value)) + '</span></button>';
+    const observed = observedAt(date, live?.time);
+    const age = observed ? '<small class="data-age" data-observed="' + observed + '">' + dataAge(observed) + '</small>' : "";
+    return '<button class="cross-row indicator-trigger" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span class="cross-name"><b>' + title + '</b><span class="cross-time"><small>' + stamp + '</small>' + age + '</span></span><strong>' + decimal(current) + (finite(current) ? unit : "") + '</strong><span class="' + direction(value) + '">' + (key === "DGS10" ? signed(value, 0, " bp") : percentage(value)) + '</span></button>';
   }).join("");
   updateMetricButtons(id, markup);
 }
@@ -494,7 +544,8 @@ function renderStatus() {
   }
   const status = byId("sync-status");
   const missed = state.missed;
-  status.textContent = missed.length === Object.values(scopes).flat().length ? "行情请求失败 · 显示最近可用数据"
+  status.textContent = missingPagesApi ? "GitHub Pages 尚未配置行情接口 · 显示快照"
+    : missed.length === Object.values(scopes).flat().length ? "行情请求失败 · 显示最近可用数据"
     : missed.length ? "部分来源暂不可用" : "";
   status.title = missed.join(", ");
   status.hidden = status.textContent === "";
@@ -522,7 +573,8 @@ function acceptQuote(quote) {
 const configuredApi = window.MARKET_LIVE_CONFIG?.apiBase?.replace(/\/$/, "");
 const api = configuredApi || ".";
 const filePage = location.protocol === "file:";
-const canFetchMarket = !filePage || /^https:\/\//i.test(configuredApi || "");
+const missingPagesApi = /(?:^|\.)github\.io$/i.test(location.hostname || "") && !configuredApi;
+const canFetchMarket = filePage ? /^https:\/\//i.test(configuredApi || "") : !missingPagesApi;
 
 async function readScope(scope) {
   const response = await fetch(api + "/api/market?scope=" + scope,
@@ -627,6 +679,8 @@ const refreshButton = byId("refresh");
 refreshButton.addEventListener("click", () => {
   if (canFetchMarket) {
     refresh();
+  } else if (missingPagesApi) {
+    renderStatus();
   } else {
     const status = byId("sync-status");
     status.textContent = "本地文件仅显示快照。请打开在线版，或用随包的本地服务启动。";
@@ -635,6 +689,10 @@ refreshButton.addEventListener("click", () => {
 });
 
 render();
+setInterval(refreshAges, 15000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshAges();
+});
 if (!filePage) loadDaily();
 if (canFetchMarket) {
   refresh();

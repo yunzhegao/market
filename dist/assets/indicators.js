@@ -163,7 +163,12 @@ function renderDetail() {
   htmlText("indicator-description", description);
   htmlText("indicator-value", detailValue(key, model.value));
   highlight("indicator-change", moveLabel(key, model.move), model.move);
-  htmlText("indicator-meta", modelTime(key, model));
+  const meta = byId("indicator-meta");
+  meta.textContent = modelTime(key, model);
+  const age = document.createElement("span");
+  age.className = "data-age";
+  setAge(age, model.date, model.time);
+  meta.append(age);
   renderDetailStats(key, model);
   const active = range === "day" ? model.bars : range === "5" ? model.rows.slice(-5) : monthRows(model.rows);
   const canCandle = active.some(hasOHLC);

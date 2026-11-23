@@ -313,3 +313,16 @@ dialog::backdrop {background:#15213265}
   .cross-row>strong {grid-column:2;grid-row:1}
   .cross-row>span:last-child {grid-column:3;grid-row:1}
 }
+
+.data-age {color:var(--muted);font-size:.72rem;font-weight:400;white-space:nowrap}
+.data-age::before {content:" · ";white-space:pre}
+.metric-timing {display:flex;flex-wrap:wrap;align-items:baseline}
+.metric-timing .data-age,.cross-time .data-age {font-size:inherit}
+.metric-timing .data-age {font-size:.68rem}
+.cross-time {display:inline-flex;flex-wrap:wrap;align-items:baseline}
+.cross-time small {color:var(--muted)}
+#sync-status {border:1px solid var(--line);border-radius:7px;padding:.32rem .55rem}
+@media (max-width:480px) {
+  .cross-name .cross-time {grid-column:1/-1;grid-row:2}
+  .cross-name .cross-time small {grid-column:auto;grid-row:auto}
+}
