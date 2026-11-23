@@ -339,3 +339,8 @@ dialog::backdrop {background:#15213265}
   font-weight:600;
   white-space:nowrap;
 }
+
+.source-status[data-tone="confirmed"] {
+  background:var(--subtle);
+  color:var(--muted);
+}

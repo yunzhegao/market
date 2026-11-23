@@ -4,7 +4,7 @@ const byId = id => document.getElementById(id);
 const finite = Number.isFinite;
 const snapshot = window.MARKET_LIVE_SNAPSHOT;
 const state = {data: window.MARKET_DATA, range: "day", mode: "line",
-  live: snapshot?.quotes || {}, observations: snapshot?.observations || {}, checkedAt: null, missed: []};
+  live: snapshot?.quotes || {}, observations: snapshot?.observations || {}, checkedAt: null, sourceChecks: {}};
 const sourceUrls = {
   investing: "https://www.investing.com/etfs/spdr-russell-1000-historical-data",
   cboe: "https://www.cboe.com/tradable-products/vix/",
@@ -43,31 +43,70 @@ const sourceGroups = [
   ["市场报价", [...scopes.spym, ...scopes.indices, ...scopes.cross]],
 ];
 
+const dailyFredKeys = sourceGroups[0][1];
+
+function lastSourceCheck(key) {
+  const dates = [state.observations[key]?.fetchedAt, historical(key).fetchedAt, state.live[key]?.fetchedAt]
+    .map(value => Date.parse(value)).filter(finite);
+  return dates.length ? Math.max(...dates) : NaN;
+}
+
 function sourceStatus(keys, hasValue) {
-  if (!keys.some(key => state.missed.includes(key))) return "";
-  return hasValue ? "沿用旧值" : "暂无数据";
+  const failed = keys.filter(key => state.sourceChecks[key] === "failed");
+  if (failed.length) {
+    const lastCheck = keys.length === 1 ? lastSourceCheck(keys[0]) : NaN;
+    return {
+      label: "核对失败", tone: "warning",
+      title: (hasValue ? "显示最近可用读数，是否有新值未知。" : "未取到可用读数。")
+        + (finite(lastCheck) ? " 上次成功核对 " + beijingTime.format(lastCheck) + " 北京。" : ""),
+    };
+  }
+  const [key] = keys;
+  if (keys.length === 1 && dailyFredKeys.includes(key) && state.sourceChecks[key]) {
+    const label = state.sourceChecks[key] === "updated" ? "已更新" : "已核对 · 数值未变";
+    return {label, tone: "confirmed", title: "本次成功读取 FRED。"};
+  }
+  return null;
+}
+
+function setSourceBadge(node, status) {
+  node.textContent = status?.label || "";
+  node.title = status?.title || "";
+  node.dataset.tone = status?.tone || "";
+  node.hidden = !status;
 }
 
 function markSource(id, keys, hasValue) {
-  const badge = byId(id);
-  badge.textContent = sourceStatus(keys, hasValue);
-  badge.hidden = !badge.textContent;
+  setSourceBadge(byId(id), sourceStatus(keys, hasValue));
 }
 
 function sourceBadge(key, hasValue) {
-  const label = sourceStatus([key], hasValue);
-  return label ? '<span class="source-status">' + label + '</span>' : "";
+  const status = sourceStatus([key], hasValue);
+  if (!status) return "";
+  const span = document.createElement("span");
+  span.className = "source-status";
+  setSourceBadge(span, status);
+  return span.outerHTML;
 }
 
 function failuresLabel() {
   return sourceGroups.flatMap(([name, keys]) => {
-    const missing = keys.filter(key => state.missed.includes(key));
+    const missing = keys.filter(key => state.sourceChecks[key] === "failed");
     return missing.length ? [name + "（" + missing.map(key => indicatorNames[key]).join("、") + "）"] : [];
   }).join("；");
 }
 
 const historical = key => state.data?.series?.[key] || {rows: []};
-const series = key => state.observations[key] || historical(key);
+const series = key => {
+  const cached = historical(key);
+  const current = state.observations[key];
+  if (!current) return cached;
+  const day = last(current.rows)?.[0] || "";
+  const cachedDay = last(cached.rows)?.[0] || "";
+  if (day !== cachedDay) return day > cachedDay ? current : cached;
+  const observedTime = item => Date.parse(item.timestamp ?? item.fetchedAt) || 0;
+  return observedTime(current) >= observedTime(cached) ? current : cached;
+};
 const liveQuote = key => {
   const quote = state.live[key];
   return quote && quote.date >= (last(historical(key).rows)?.[0] || "") ? quote : null;
@@ -102,9 +141,8 @@ function ageInDays(earlier, later) {
 
 function markMeta(id, data, suffix = "") {
   const date = last(data.rows)?.[0];
-  const fallback = data.status === "retained" ? " · 保留值" : "";
   const target = byId(id);
-  target.textContent = date ? shortDate(date) + fallback + (suffix ? " · " + suffix : "") : "暂无数据";
+  target.textContent = date ? shortDate(date) + (suffix ? " · " + suffix : "") : "暂无数据";
   target.title = date ? date + (data.timestamp ? " · " + beijingTime.format(new Date(data.timestamp)) + " 北京时间" : "") : "";
 }
 
@@ -584,7 +622,7 @@ function renderStatus() {
   const status = byId("sync-status");
   const failures = failuresLabel();
   status.textContent = missingPagesApi ? "GitHub Pages 尚未配置行情接口 · 显示快照"
-    : failures ? "本次未取到 " + failures : "";
+    : failures ? "本次核对失败，是否有新值未知 · " + failures : "";
   status.hidden = status.textContent === "";
 }
 
@@ -613,28 +651,36 @@ const filePage = location.protocol === "file:";
 const missingPagesApi = /(?:^|\.)github\.io$/i.test(location.hostname || "") && !configuredApi;
 const canFetchMarket = filePage ? /^https:\/\//i.test(configuredApi || "") : !missingPagesApi;
 
+function recordCheck(key, quote, observation, fetchedAt) {
+  if (acceptQuote(quote)) {
+    const saved = liveQuote(key);
+    const marketDate = last(historical(key).rows)?.[0] || "";
+    if (quote.date < marketDate || (saved && quote.time < saved.time)) return "failed";
+    const confirmed = saved && saved.time === quote.time && saved.price === quote.price;
+    state.live[key] = {...quote, fetchedAt};
+    return confirmed ? "confirmed" : "updated";
+  }
+  const sample = Array.isArray(observation?.rows) && last(observation.rows);
+  if (!sample || !/^\d{4}-\d{2}-\d{2}$/.test(sample[0]) || !finite(sample[1])) return "failed";
+  if (observation.source !== (key === "FEAR" ? "cnn" : "fred")) return "failed";
+  const saved = series(key);
+  const prior = last(saved.rows);
+  const timestamp = observation.timestamp;
+  if ((prior && sample[0] < prior[0]) || (saved.timestamp && !(timestamp >= saved.timestamp))) return "failed";
+  const confirmed = prior && sample[0] === prior[0] && sample[1] === prior[1] && timestamp === saved.timestamp;
+  state.observations[key] = {...observation, fetchedAt};
+  return confirmed ? "confirmed" : "updated";
+}
+
 async function readScope(scope) {
   const response = await fetch(api + "/api/market?scope=" + scope,
     {cache: "no-store", signal: AbortSignal.timeout(25000)});
   if (!response.ok) throw new Error("行情请求失败");
   const payload = await response.json();
-  const missing = [];
-  for (const key of scopes[scope]) {
-    const quote = payload.quotes?.[key];
-    const observation = payload.observations?.[key];
-    if (acceptQuote(quote)) {
-      if (quote.time >= (state.live[key]?.time || 0)) state.live[key] = quote;
-    } else if (observation?.rows?.length && observation.source === (key === "FEAR" ? "cnn" : "fred")) {
-      const saved = series(key);
-      const lastDate = last(saved.rows)?.[0] || "";
-      if (last(observation.rows)[0] >= lastDate && (!saved.timestamp || observation.timestamp >= saved.timestamp)) state.observations[key] = observation;
-    } else {
-      missing.push(key);
-    }
-  }
-  // Paint available quotes as their source requests finish.
-  render();
-  return missing;
+  const fetchedAt = finite(Date.parse(payload.checkedAt)) ? payload.checkedAt : new Date().toISOString();
+  return Object.fromEntries(scopes[scope].map(key => [
+    key, recordCheck(key, payload.quotes?.[key], payload.observations?.[key], fetchedAt),
+  ]));
 }
 
 async function loadDaily() {
@@ -657,10 +703,11 @@ async function refresh() {
   button.disabled = true;
   state.checkedAt = new Date().toISOString();
   try {
-    const jobs = Object.keys(scopes);
-    const results = await Promise.allSettled(jobs.map(readScope));
-    state.missed = results.flatMap((result, index) => result.status === "fulfilled" ? result.value : scopes[jobs[index]]);
-    render();
+    await Promise.all(Object.entries(scopes).map(async ([scope, keys]) => {
+      const checks = await readScope(scope).catch(() => Object.fromEntries(keys.map(key => [key, "failed"])));
+      Object.assign(state.sourceChecks, checks);
+      render();
+    }));
   } finally {
     button.disabled = false;
   }
