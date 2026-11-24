@@ -16,10 +16,10 @@ const price = value => typeof value === "string" ? Number(value.replace(/[^\d.+-
 const last = rows => rows.at(-1);
 const browserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36";
 
-async function upstream(url, type = "json", headers = {}) {
+async function upstream(url, type = "json", headers = {}, timeout = 6500) {
   const response = await fetch(url, {
     headers: {"User-Agent": browserAgent, Accept: type === "json" ? "application/json" : "text/csv", ...headers},
-    signal: AbortSignal.timeout(6500),
+    signal: AbortSignal.timeout(timeout),
   });
   if (!response.ok) throw new Error("HTTP " + response.status);
   return type === "json" ? response.json() : response.text();
@@ -257,6 +257,110 @@ async function getFear() {
     timestamp: new Date(time).toISOString(), previous: finite(current.previous_close) ? current.previous_close : null};
 }
 
+const marketContextSources = {
+  DRAWDOWN: getSpymCloses,
+  BREADTH50: getBreadth50,
+  VIXTERM: getVixTerm,
+};
+
+function recentTradingDate(hour, minute = 0) {
+  const now = Date.now();
+  const parts = Object.fromEntries(eastParts.formatToParts(now).map(p => [p.type, p.value]));
+  return Number(parts.hour) * 60 + Number(parts.minute) >= hour * 60 + minute
+    ? dayOf(now) : dayOf(now - 86400000);
+}
+
+function csvDate(date) {
+  const match = date?.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (match) return match[3] + "-" + match[1].padStart(2, "0") + "-" + match[2].padStart(2, "0");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  return "";
+}
+
+async function getSpymCloses() {
+  const today = recentTradingDate(16);
+  // Allow a full 52-week window even for the earliest point on the one-month graph.
+  const from = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
+  for (const host of yahooHosts) {
+    try {
+      const chart = await yahooChart("SPYM", host, "1d", "2y");
+      const rows = dailyRows(chart, "SPYM").filter(row => row[0] >= from && row[0] <= today).map(row => row.slice(0, 2));
+      if (rows.length >= 250 && rows[0][0] <= dayOf(Date.now() - 395 * 86400000)) return {source: "yahoo", rows};
+    } catch {
+      // Nasdaq historical closes are the fallback.
+    }
+  }
+  const query = new URLSearchParams({assetclass: "etf", fromdate: from, limit: "400"});
+  const {data} = await upstream("https://api.nasdaq.com/api/quote/SPYM/historical?" + query, "json",
+    {Referer: "https://www.nasdaq.com/"});
+  const rows = (data?.tradesTable?.rows || []).flatMap(row => {
+    const date = csvDate(row.date);
+    const close = price(row.close);
+    return date && date <= today && date >= from && finite(close) && close > 0 ? [[date, close]] : [];
+  }).sort((a, b) => a[0].localeCompare(b[0]));
+  return rows.length >= 250 && rows[0][0] <= dayOf(Date.now() - 395 * 86400000)
+    ? {source: "nasdaq", rows} : null;
+}
+
+async function getBreadth50() {
+  const path = "/advance-decline/ma_percentage_historical.json";
+  for (const host of ["https://r2.deanfi.com", "https://raw.githubusercontent.com/DeanFinancials/deanfi-data/main"]) {
+    try {
+      const {data, metadata} = await upstream(host + path);
+      const rows = data.flatMap(({date, ma_50}) => {
+        const share = ma_50?.percentage_above;
+        return csvDate(date) === date && date <= dayOf(Date.now()) && finite(share) && share >= 0 && share <= 100
+          ? [[date, share]] : [];
+      }).sort((a, b) => a[0].localeCompare(b[0])).slice(-35);
+      if (rows.length >= 6) return {source: "deanfi", rows, timestamp: metadata?.generated_at};
+    } catch {
+      // The GitHub mirror has the same series when the primary endpoint is unavailable.
+    }
+  }
+  return null;
+}
+
+async function cboeCloses(symbol, end) {
+  const text = await upstream("https://cdn.cboe.com/api/global/us_indices/daily_prices/" + symbol + "_History.csv", "csv", {}, 11000);
+  return text.trim().split(/\r?\n/).slice(-45).flatMap(line => {
+    const [rawDate, , , , rawClose] = line.split(",");
+    const date = csvDate(rawDate);
+    const close = Number(rawClose);
+    return date && date <= end && finite(close) && close > 0 ? [[date, close]] : [];
+  }).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+async function fredVolatilityCloses(id, end) {
+  const cosd = new Date(Date.parse(end) - 70 * 86400000).toISOString().slice(0, 10);
+  const text = await upstream("https://fred.stlouisfed.org/graph/fredgraph.csv?" + new URLSearchParams({id, cosd}), "csv");
+  return text.trim().split(/\r?\n/).flatMap(line => {
+    const [date, raw] = line.split(",");
+    const close = Number(raw);
+    return csvDate(date) === date && date <= end && finite(close) && close > 0 ? [[date, close]] : [];
+  });
+}
+
+function divideVolatilityCloses(vix, vix3m, source) {
+  const long = new Map(vix3m);
+  const paired = vix.filter(([date]) => long.has(date));
+  const [date, short] = last(paired) || [];
+  const rows = paired.map(([date, short]) => [date, short / long.get(date)]);
+  return date ? {source, rows, vix: short, vix3m: long.get(date)} : null;
+}
+
+async function getVixTerm() {
+  const end = recentTradingDate(16, 15);
+  try {
+    const pair = await Promise.all(["VIX", "VIX3M"].map(symbol => cboeCloses(symbol, end)));
+    const reading = divideVolatilityCloses(...pair, "cboe");
+    if (reading) return reading;
+  } catch {
+    // FRED republishes the same two Cboe index close series.
+  }
+  const pair = await Promise.all(["VIXCLS", "VXVCLS"].map(id => fredVolatilityCloses(id, end)));
+  return divideVolatilityCloses(...pair, "fred");
+}
+
 async function gather(keys, get) {
   const entries = await Promise.all(keys.map(async key => {
     try {
@@ -291,6 +395,10 @@ export default {
     const headers = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store", "Content-Type": "application/json"};
     if (request.method !== "GET") return Response.json({error: "method"}, {status: 405, headers});
     const scope = url.searchParams.get("scope");
+    if (scope === "context") {
+      const context = await gather(Object.keys(marketContextSources), key => marketContextSources[key]());
+      return Response.json({context}, {status: Object.values(context).some(Boolean) ? 200 : 503, headers});
+    }
     if (scope === "chart5") {
       const key = url.searchParams.get("key");
       if (!Object.hasOwn(market, key) && key !== "BREADTH") {

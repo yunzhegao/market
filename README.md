@@ -2,6 +2,8 @@
 
 页面打开、恢复可见或点击刷新时，请求当时可取到的最新公开报价。页面可见时每分钟请求一次。SPYM 盘中图默认展示常规时段的 1 分钟行情，支持分钟 K 线。5 日图展示最近五个交易日的 5 分钟盘中走势及 K 线，1 月图为日线并随报价更新当日点位。已有部署需更新 Worker 才能使用 5 日盘中接口。行情可能延迟。信用利差、国债收益率和恐贪按各来源发布频率更新。
 
+SPYM 主卡的 52 周回撤以最新报价对比过去 364 天内的最高日收盘价，达到或超过该高点时显示 0%。广度卡使用 [DeanFi 的标普 500 成分股统计](https://github.com/DeanFinancials/deanfi-data/tree/main/advance-decline)，比较当前读数与五个交易日前的百分点变化。VIX / VIX3M 使用 [Cboe 指数收盘数据](https://www.cboe.com/tradable-products/vix/vix-historical-data)（FRED 可作同口径备用来源），仅对齐同一交易日。新版指标接口是 `/api/market?scope=context`，网页可见时每五分钟请求，SPYM 回撤会随主报价刷新。
+
 ## 在本机刷新行情
 
 直接打开 `dist/index.html` 时，地址栏以 `file://` 开头，显示随包下载的行情快照。联网后，用 Node.js 20 或更新版本，在解压出来的项目根目录运行：

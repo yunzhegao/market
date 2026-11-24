@@ -4,7 +4,7 @@ const byId = id => document.getElementById(id);
 const finite = Number.isFinite;
 const snapshot = window.MARKET_LIVE_SNAPSHOT;
 const state = {data: window.MARKET_DATA, range: "day", mode: "line",
-  live: snapshot?.quotes || {}, observations: snapshot?.observations || {}, checkedAt: null, sourceChecks: {}};
+  live: snapshot?.quotes || {}, observations: snapshot?.observations || {}, context: window.MARKET_CONTEXT_SNAPSHOT || {}, checkedAt: null, sourceChecks: {}};
 const sourceUrls = {
   investing: "https://www.investing.com/etfs/spdr-russell-1000-historical-data",
   cboe: "https://www.cboe.com/tradable-products/vix/",
@@ -39,11 +39,13 @@ const indicatorNames = {
   SPYM: "SPYM", VIX: "VIX 波动率", SPY: "SPY", RSP: "RSP", IWM: "IWM", QQQ: "QQQ",
   HYG: "HYG", JNK: "JNK", KRE: "KRE", DXY: "美元指数", GOLD: "黄金期货", WTI: "WTI 原油",
   OAS: "信用利差", DGS10: "十年期美债收益率", FEAR: "恐贪指数",
+  DRAWDOWN: "52 周回撤", BREADTH50: "站上 50 日线", VIXTERM: "VIX / VIX3M",
 };
 const sourceGroups = [
   ["FRED", ["OAS", "DGS10"]],
   ["CNN", ["FEAR"]],
   ["市场报价", [...scopes.spym, ...scopes.indices, ...scopes.cross]],
+  ["DeanFi", ["BREADTH50"]], ["Cboe", ["VIXTERM"]], ["SPYM 日线", ["DRAWDOWN"]],
 ];
 
 function failuresLabel() {
@@ -81,6 +83,7 @@ const direction = value => value > 0 ? "up" : value < 0 ? "down" : "";
 const decimal = (value, digits = 2) => finite(value) ? value.toLocaleString("en-US", {minimumFractionDigits: digits, maximumFractionDigits: digits}) : "—";
 const signed = (value, digits = 2, unit = "") => finite(value) ? (value > 0 ? "+" : value < 0 ? "−" : "") + decimal(Math.abs(value), digits) + unit : "—";
 const percentage = value => signed(value, 2, "%");
+const percentPoints = n => signed(n, 2, " 个百分点");
 const shortDate = value => value ? value.slice(5).replace("-", "/") : "—";
 const previous = rows => rows.at(-2)?.[1];
 const change = data => finite(data.change) ? data.change : pct(close(data.rows), previous(data.rows));
@@ -215,6 +218,68 @@ function renderQuote() {
   const monthly = month.length > 1 ? pct(latest, month[0][1]) : NaN;
   highlight("spym-month", percentage(monthly), monthly);
   updateLink("spym-link", "SPYM");
+}
+
+function rollingHigh(rows, date) {
+  const cutoff = new Date(Date.parse(date) - 364 * 86400000).toISOString().slice(0, 10);
+  if (ageInDays(cutoff, rows[0][0]) > 7) return null;
+  return rows.reduce((high, row) => row[0] >= cutoff && row[0] <= date && (!high || row[1] >= high[1]) ? row : high, null);
+}
+
+function spymDrawdown() {
+  const rows = state.context.DRAWDOWN?.rows || [];
+  if (!rows.length) return {rows, value: NaN};
+  const settled = last(rows);
+  const quote = liveQuote("SPYM");
+  const live = quote && (quote.date > settled[0] || (quote.date === settled[0] && finite(quote.sessionEnd) && quote.time >= quote.sessionEnd - 60000))
+    ? quote : null;
+  const date = live?.date ?? settled[0];
+  const price = live?.price ?? settled[1];
+  const high = rollingHigh(rows, date);
+  return {rows, date, price, high, time: live?.time, value: high ? Math.min(0, pct(price, high[1])) : NaN};
+}
+
+function renderContext() {
+  const {value} = spymDrawdown();
+  highlight("spym-drawdown", percentage(value), value);
+  const breadth = state.context.BREADTH50?.rows || [];
+  const current = last(breadth);
+  const move = current?.[1] - breadth.at(-6)?.[1];
+  htmlText("breadth50-value", finite(current?.[1]) ? decimal(current[1]) + "%" : "—");
+  highlight("breadth50-move", finite(move) ? "5 日 " + percentPoints(move) : "", move);
+  htmlText("breadth50-date", current ? shortDate(current[0]) : "");
+
+  const term = last(state.context.VIXTERM?.rows || []);
+  htmlText("vix-term-value", decimal(term?.[1], 3));
+  htmlText("vix-term-date", term ? shortDate(term[0]) + " 收盘" : "");
+}
+
+let contextRequestedAt = -Infinity;
+
+async function refreshContext(force) {
+  const now = Date.now();
+  if (!force && now - contextRequestedAt < 300000) return;
+  contextRequestedAt = now;
+  const values = await (async () => {
+    const response = await fetch(api + "/api/market?scope=context", {cache: "no-store", signal: AbortSignal.timeout(25000)});
+    return response.ok ? (await response.json()).context : null;
+  })().catch(() => null);
+  for (const key of ["DRAWDOWN", "BREADTH50", "VIXTERM"]) {
+    const next = values?.[key];
+    const saved = state.context[key];
+    const end = last(next?.rows || []);
+    const valid = end && /^\d{4}-\d{2}-\d{2}$/.test(end[0]) && finite(end[1]);
+    const savedDate = last(saved?.rows || [])?.[0] || "";
+    const hasNewerTimestamp = !saved?.timestamp || Date.parse(next?.timestamp) >= Date.parse(saved.timestamp);
+    if (valid && (end[0] > savedDate || (end[0] === savedDate && hasNewerTimestamp))) {
+      state.context[key] = next;
+      state.sourceChecks[key] = "ok";
+    } else {
+      state.sourceChecks[key] = valid && end[0] === savedDate ? "ok" : "failed";
+    }
+  }
+  renderContext();
+  renderStatus();
 }
 
 function withDailyQuote(rows, quote) {
@@ -694,6 +759,7 @@ function render() {
   renderStatus();
   renderQuote();
   renderSignals();
+  renderContext();
   renderChart();
 }
 
@@ -759,7 +825,7 @@ async function loadDaily() {
   }
 }
 
-async function refresh() {
+async function refresh(forceContext = false) {
   const button = byId("refresh");
   if (button.disabled) return;
   button.disabled = true;
@@ -770,6 +836,7 @@ async function refresh() {
       Object.assign(state.sourceChecks, checks);
       render();
     });
+    requests.push(refreshContext(forceContext));
     if (state.range === "5") requests.push(refreshFiveDayChart());
     await Promise.all(requests);
     if (state.range === "month") await refreshSpymHistory();
@@ -830,7 +897,7 @@ for (const button of document.querySelectorAll("[data-dialog]")) {
 const refreshButton = byId("refresh");
 refreshButton.addEventListener("click", () => {
   if (canFetchMarket) {
-    refresh();
+    refresh(true);
   } else if (missingPagesApi) {
     renderStatus();
   } else {

@@ -1,6 +1,9 @@
 "use strict";
 
 const indicatorDefinitions = {
+  DRAWDOWN: ["SPYM · 52 周回撤", "用最新报价除以前 52 周内的最高日收盘价。达到或超过这个收盘高点时，回撤为 0%。", "%"],
+  BREADTH50: ["标普 500 · 站上 50 日均线的比例", "DeanFi 统计收盘价站上各自 50 日均线的标普 500 成分股比例。盘中读数以数据源最近一批更新为准。", "%"],
+  VIXTERM: ["VIX / VIX3M · 波动率期限结构", "Cboe 同一交易日的 VIX 收盘值除以 VIX3M 收盘值。高于 1 表示 30 天隐含波动率高于 3 个月。", "倍"],
   SPYM: ["SPYM · 标普 500 ETF", "道富发行的 ETF，跟踪市值加权的标普 500 指数。", "USD"],
   VIX: ["VIX 波动率", "由标普 500 指数期权价格推算未来 30 天的预期波动率。数值上升表示隐含波动率抬高。", "点"],
   FEAR: ["CNN 恐惧与贪婪指数", "综合股票动量、波动率等七项市场指标。分数越低，市场情绪越偏恐惧。", "分"],
@@ -18,7 +21,8 @@ const indicatorDefinitions = {
   GOLD: ["黄金期货 · COMEX", "黄金期货连续合约报价，单位为美元／金衡盎司，换月可能影响价格序列。", "USD"],
   WTI: ["WTI 原油期货", "西得州中质原油期货连续合约报价，单位为美元／桶，换月可能影响价格序列。", "USD"],
 };
-const observationKeys = new Set(["FEAR", "OAS", "DGS10"]);
+const contextKeys = new Set(["DRAWDOWN", "BREADTH50", "VIXTERM"]);
+const observationKeys = new Set(["FEAR", "OAS", "DGS10", ...contextKeys]);
 const detailDialog = byId("indicator-detail");
 const detailChart = byId("indicator-chart");
 const detailView = {key: null, range: "month", mode: "line", plot: null, selected: null, controller: null};
@@ -30,6 +34,7 @@ function detailValue(key, value) {
   if (!finite(value)) return "—";
   const [, , unit] = indicatorDefinitions[key];
   if (unit === "比率") return decimal(value, 4);
+  if (unit === "倍") return decimal(value, 3) + " 倍";
   if (unit === "USD") return "$" + decimal(value);
   if (unit === "%") return decimal(value) + "%";
   if (unit === "bp") return decimal(value * 100, 0) + " bp";
@@ -67,7 +72,27 @@ function historicalRows(key, fetched) {
   return returned;
 }
 
+function contextModel(key) {
+  if (key === "DRAWDOWN") {
+    const latest = spymDrawdown();
+    if (!latest.date || !finite(latest.value)) return {rows: [], bars: [], value: NaN};
+    const daily = monthRows(latest.rows).flatMap(row => {
+      const high = rollingHigh(latest.rows, row[0]);
+      return high ? [[row[0], Math.min(0, pct(row[1], high[1]))]] : [];
+    });
+    const rows = [...daily.filter(row => row[0] < latest.date), [latest.date, latest.value, null, null, null, latest.time]];
+    return {...latest, rows, bars: []};
+  }
+  const data = state.context[key];
+  const rows = data?.rows || [];
+  const [date, value] = last(rows) || [];
+  const before = key === "BREADTH50" ? rows.at(-6)?.[1] : previous(rows);
+  return {rows, bars: [], before, value, move: value - before, date,
+    time: key === "BREADTH50" ? Date.parse(data?.timestamp) : null};
+}
+
 function detailModel(key, returned) {
+  if (contextKeys.has(key)) return contextModel(key);
   if (key === "BREADTH") {
     const left = detailModel("RSP", returned?.components?.RSP);
     const right = detailModel("SPY", returned?.components?.SPY);
@@ -104,6 +129,9 @@ function detailModel(key, returned) {
 }
 
 function moveLabel(key, move) {
+  if (key === "BREADTH50") return finite(move) ? "5 日 " + percentPoints(move) : "—";
+  if (key === "VIXTERM") return signed(move, 3);
+  if (key === "DRAWDOWN") return "";
   if (key === "VIX" || key === "FEAR") return signed(move, key === "VIX" ? 2 : 1, " 点");
   if (key === "OAS" || key === "DGS10") return signed(move, 0, " bp");
   return percentage(move);
@@ -111,11 +139,28 @@ function moveLabel(key, move) {
 
 function modelTime(key, model) {
   if (!model.date) return "暂无观测时间";
+  if (key === "BREADTH50") return model.date + " 美东交易日";
+  if (key === "VIXTERM") return model.date + " 美东收盘";
   if (finite(model.time)) return easternTimestamp(model.time);
   return model.date + (observationKeys.has(key) ? " 观测值" : "");
 }
 
 function sourceLinks(key) {
+  if (key === "DRAWDOWN") return state.context.DRAWDOWN?.source === "nasdaq"
+    ? [["Nasdaq · SPYM 历史行情", "https://www.nasdaq.com/market-activity/etf/spym/historical"]]
+    : [["Yahoo Finance · SPYM 历史行情", "https://finance.yahoo.com/quote/SPYM/history/"]];
+  if (key === "BREADTH50") return [
+    ["DeanFi · 历史数据", "https://github.com/DeanFinancials/deanfi-data/blob/main/advance-decline/ma_percentage_historical.json"],
+    ["StockCharts · 指标说明", "https://chartschool.stockcharts.com/table-of-contents/market-indicators/percent-above-moving-average"],
+  ];
+  if (key === "VIXTERM" && state.context.VIXTERM?.source === "fred") return [
+    ["FRED · VIX", sourceUrls.fred + "VIXCLS"],
+    ["FRED · VIX3M", sourceUrls.fred + "VXVCLS"],
+  ];
+  if (key === "VIXTERM") return [
+    ["Cboe · VIX", "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv"],
+    ["Cboe · VIX3M", "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX3M_History.csv"],
+  ];
   if (key === "BREADTH") return [
     ["RSP 行情", sourceURL("RSP")], ["SPY 行情", sourceURL("SPY")],
     ["标普 500 成分股热力图", "https://finviz.com/map.ashx?t=sec"],
@@ -130,7 +175,16 @@ function renderDetailStats(key, model) {
   const {quote, before, rows} = model;
   const [, value, open, high, low] = last(rows) || [];
   const stats = [];
-  if (finite(before)) stats.push([observationKeys.has(key) ? "上一读数" : "前一收盘", detailValue(key, before)]);
+  if (finite(before)) stats.push([key === "BREADTH50" ? "5 个交易日前" : observationKeys.has(key) ? "上一读数" : "前一收盘", detailValue(key, before)]);
+  if (key === "BREADTH50" && finite(model.time)) stats.push(["来源更新时间", easternTimestamp(model.time)]);
+  if (key === "DRAWDOWN" && model.high) {
+    stats.push(["52 周收盘高点", "$" + decimal(model.high[1]) + " · " + model.high[0]]);
+    stats.push(["用于计算的价格", "$" + decimal(model.price)]);
+  }
+  const vol = state.context.VIXTERM;
+  if (key === "VIXTERM" && finite(vol?.vix) && finite(vol?.vix3m)) {
+    stats.push(["VIX 收盘", decimal(vol.vix)], ["VIX3M 收盘", decimal(vol.vix3m)]);
+  }
   if (quote && finite(quote.open)) stats.push(["开盘", detailValue(key, quote.open)]);
   if (!quote && finite(open)) stats.push(["开盘", detailValue(key, open)]);
   const bounds = quote ? [quote.low, quote.high] : [low, high];
@@ -187,13 +241,14 @@ function renderDetail() {
   }
   byId("detail-mode-group").hidden = !canCandle;
   for (const button of modeButtons) button.setAttribute("aria-pressed", String(button.dataset.detailMode === detailView.mode));
-  const base = range === "day" && !observationKeys.has(key) ? model.before : null;
+  const base = range === "day" && !observed ? model.before : null;
   const dailyLabel = observationKeys.has(key) ? "观测日" : "美东交易日";
   detailView.plot = drawPlot(detailChart, active, {candle: detailView.mode === "candle", base, dailyLabel, sessions,
     dayOffset: sessionOffset(key), history: range === "day" || sessions ? active : dailyRows, axisWidth: unit === "比率" ? 49 : 45,
     axisFormat: value => decimal(unit === "bp" ? value * 100 : value, unit === "比率" ? 4 : unit === "bp" || unit === "分" ? 0 : 2)});
   const format = unit === "比率" ? "RSP / SPY 价格比" : key === "GOLD" ? "USD／金衡盎司" : key === "WTI" ? "USD／桶" : unit;
-  const period = range === "day" ? "美东分时" + (finite(model.interval) ? " · " + model.interval + " 分钟" : "")
+  const period = key === "DRAWDOWN" ? "日线回撤 · 当前点随 SPYM 更新"
+    : key === "VIXTERM" ? "同日收盘" : range === "day" ? "美东分时" + (finite(model.interval) ? " · " + model.interval + " 分钟" : "")
     : sessions ? "最近 5 个交易日 · 5 分钟" : observed ? "日度观测" : "日线 · 当日点位随报价更新";
   htmlText("indicator-legend", period + " · " + format + (finite(base) ? " · 颜色对比前收，虚线为前收" : " · 颜色对比前一观测值"));
   htmlText("indicator-empty", detailView.loading || loadingFiveDays ? "正在请求图表数据…"
@@ -217,10 +272,10 @@ async function openDetail(key) {
   const controller = new AbortController();
   const available = detailModel(key).bars.length > 0;
   Object.assign(detailView, {key, mode: "line", range: available ? "day" : "month", selected: null, returned: null,
-    controller, loading: canFetchMarket, manuallyChangedRange: false});
+    controller, loading: canFetchMarket && !contextKeys.has(key), manuallyChangedRange: false});
   detailDialog.showModal();
   renderDetail();
-  if (!canFetchMarket) return;
+  if (!canFetchMarket || contextKeys.has(key)) return;
   try {
     const response = await fetch(api + "/api/market?scope=detail&key=" + encodeURIComponent(key), {
       cache: "no-store", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(23000)]),
@@ -325,6 +380,7 @@ function showTip(trigger, event, observation) {
       + (finite(latest.move) ? " · " + moveLabel(key, latest.move) : "");
     value.className = direction(latest.move);
     stamp.textContent = " · " + modelTime(key, latest);
+    if (key === "DRAWDOWN" && latest.high) desc.textContent = "52 周收盘高点 $" + decimal(latest.high[1]) + "（" + latest.high[0] + "）。" + description;
   }
   const name = document.createElement("b");
   name.textContent = title;
