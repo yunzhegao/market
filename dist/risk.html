@@ -8,7 +8,7 @@
   <title>投资组合绩效与风险分析 · 市场观察</title>
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/styles.css">
-  <link rel="stylesheet" href="./assets/workspace.css?v=journal-2">
+  <link rel="stylesheet" href="./assets/workspace.css?v=import-2">
   <script defer src="./assets/live-config.js"></script>
   <script defer src="./assets/world-snapshot.js"></script>
   <script defer src="./assets/portfolio-model.js?v=journal-1"></script>
@@ -20,7 +20,7 @@
   <script defer src="./assets/portfolio-performance.js?v=risk-1"></script>
   <script defer src="./assets/portfolio-analysis.js?v=concentration-1"></script>
   <script defer src="./assets/portfolio-journal.js?v=journal-2"></script>
-  <script defer src="./assets/portfolio.js?v=concentration-1"></script>
+  <script defer src="./assets/portfolio.js?v=import-2"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -55,6 +55,7 @@
       <div class="page-tools">
         <label for="base-currency">显示币种</label><select id="base-currency"></select>
         <label class="quote-switch"><input type="checkbox" id="live-portfolio" checked>自动行情</label>
+        <button type="button" class="compact-button pill-button" id="import-backup">导入</button>
         <button type="button" class="compact-button pill-button" id="export-analysis" hidden>导出分析</button>
         <a class="text-button" href="./portfolio.html">管理持仓</a>
       </div>
@@ -210,7 +211,7 @@
     <form class="dialog-body" id="editor-form">
       <div id="editor-content"></div>
       <p class="work-error" id="editor-error" role="alert"></p>
-      <div class="editor-actions"><button id="editor-add" type="button" class="compact-button">添加一行</button><div class="page-tools"><button id="editor-example" type="button" class="text-button">下载示例 JSON</button><button id="editor-import" type="button" class="compact-button">导入</button><button id="editor-export" type="button" class="compact-button">导出备份</button><button type="submit" class="solid-button">保存</button></div></div>
+      <div class="editor-actions"><button id="editor-add" type="button" class="compact-button">添加一行</button><div class="page-tools"><button id="editor-example" type="button" class="text-button">下载示例 JSON</button><button id="editor-export" type="button" class="compact-button">导出备份</button><button type="submit" class="solid-button">保存</button></div></div>
     </form>
   </dialog>
   <dialog id="analysis-export-dialog" class="editor-dialog" aria-labelledby="analysis-export-title">

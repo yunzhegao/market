@@ -23,6 +23,7 @@ const saveSimulationOrders = () => {if (!demo) localWrite(simulationOrdersKey,or
 let editor;
 let demo = false;
 let persistenceWarning = "";
+let importStatus = "";
 let databaseVersion = null;
 let pendingSave = false;
 let portfolioQuotes = localRead(portfolioQuoteKey,{});
@@ -411,6 +412,7 @@ function draw() {
     by("exit-demo").hidden = !demo;
   }
   const status = [
+    importStatus,
     demo ? "演示数据" : databaseVersion !== null ? "持仓已接入数据库" : "本机持仓",
     livePortfolio && !demo && report.values.some(row=>row.kind!=="cash")
       ? report.values.filter(portfolioQuote).length+" 项使用在线报价"
@@ -529,7 +531,6 @@ function edit(mode) {
   by("editor-error").textContent = "";
   by("editor-add").hidden = mode==="rates";
   by("editor-example").hidden = mode!=="positions";
-  by("editor-import").hidden = mode!=="positions";
   by("editor-export").hidden = mode!=="positions";
   renderEditor();
   editorDialog.showModal();
@@ -615,40 +616,104 @@ function exportPortfolio() {
   downloadPortfolioFile("组合备份",editor?.mode==="positions" ? editor.name : savedName,{...data,...(localJournal?{localJournal}:{})});
 }
 
-by("import-portfolio").addEventListener("change",async event=>{
-  const [file] = event.target.files;
-  if (!file) return;
-  try {
-    if (file.size>5*1024*1024) throw new Error("持仓备份应小于 5 MB");
-    const raw = JSON.parse(await file.text());
-    const imported = normalizePortfolio({...raw,journalId:undefined});
-    if (raw.navHistory != null && !imported.navHistory) throw new Error("备份中的估值持仓记录格式有误");
+async function restorePortfolioBackup(raw) {
+  const imported = normalizePortfolio({...raw,journalId:undefined});
+  if (raw.navHistory != null && !imported.navHistory) throw new Error("备份中的估值持仓记录格式有误");
+  if (raw.localJournal != null) {
+    const journal = normalizeJournal(raw.localJournal);
+    imported.journalId = newJournalId();
+    if (!localWrite(portfolioJournalPrefix+imported.journalId,journal)) throw new Error("浏览器无法恢复流水备份。");
+  } else if (imported.name===portfolio.name && portfolio.journalId) {
+    imported.journalId = portfolio.journalId;
+  }
+  try {await writePortfolio(imported,imported.navHistory);}
+  catch (error) {
     if (raw.localJournal != null) {
-      const journal = normalizeJournal(raw.localJournal);
-      imported.journalId = newJournalId();
-      if (!localWrite(portfolioJournalPrefix+imported.journalId,journal)) throw new Error("浏览器无法恢复流水备份。");
-    } else if (imported.name===portfolio.name && portfolio.journalId) {
-      imported.journalId = portfolio.journalId;
+      try {localStorage.removeItem(portfolioJournalPrefix+imported.journalId);} catch {}
     }
-    try {await writePortfolio(imported,imported.navHistory);}
-    catch (error) {
-      if (raw.localJournal != null) {
-        try {localStorage.removeItem(portfolioJournalPrefix+imported.journalId);} catch {}
-      }
-      throw error;
+    throw error;
+  }
+  return "已恢复「"+portfolio.name+"」";
+}
+
+async function importPortfolioPositions(raw,positions) {
+  const saved = readPortfolioBook();
+  const current = demo ? (saved ? normalizePortfolio(saved) : blankPortfolio()) : portfolio;
+  const defaults = !saved && !current.positions.length ? {name:raw.name,base:raw.base} : {};
+  const next = normalizePortfolio({...current,...defaults,positions,date:raw.date ?? ""});
+  await writePortfolio(next);
+  return "已导入 "+next.positions.length+" 项持仓";
+}
+
+function mergePortfolioJournal(source) {
+  if (demo) throw new Error("请退出演示后再合并流水。");
+  const incoming = normalizeJournal(source);
+  const current = readPrivateJournal();
+  const ids = new Set(current.entries.map(row=>row.id));
+  const checkpoints = new Set(current.entries.filter(row=>row.kind==="equity").map(row=>row.date+"/"+row.currency));
+  let skipped = 0;
+  const added = incoming.entries.filter(row=>{
+    if (ids.has(row.id)) return false;
+    if (row.kind==="equity" && checkpoints.has(row.date+"/"+row.currency)) {
+      skipped++;
+      return false;
     }
-    orders = [];
-    saveSimulationOrders();
-    by("base-currency").value = portfolio.base;
-    if (editorDialog.open) editorDialog.close();
-    drawOrders();
+    return true;
+  });
+  if (added.length) savePrivateJournal(book=>({...book,entries:[...book.entries,...added]}));
+  const repeated = incoming.entries.length-added.length-skipped;
+  return "已追加 "+added.length+" 条流水"+(repeated?" · 跳过 "+repeated+" 条相同编号":"")
+    +(skipped?" · 保留 "+skipped+" 条同日同币种的本机净值":"");
+}
+
+const importButton = by("import-backup");
+const importInput = by("import-portfolio");
+importButton.addEventListener("click",()=>importInput.click());
+importInput.addEventListener("change",async ()=>{
+  const [file] = importInput.files;
+  if (!file) return;
+  importButton.disabled = true;
+  try {
+    if (file.size>50*1024*1024) throw new Error("JSON 文件不能超过 50 MB。");
+    const raw = JSON.parse(await file.text());
+    await portfolioDatabaseReady;
+    const journal = raw?.localJournal ?? raw;
+    let type, result;
+    if (Array.isArray(raw?.positions)) {
+      const backup = ["navHistory","localJournal","rates","weights","scenarios"].some(key=>Object.hasOwn(raw,key));
+      type = backup ? "组合备份" : "持仓";
+      result = await (backup ? restorePortfolioBackup(raw) : importPortfolioPositions(raw,raw.positions));
+    } else if (Array.isArray(raw?.history?.currentPositions)) {
+      type = "完整历史分析";
+      result = await importPortfolioPositions(raw,raw.history.currentPositions);
+    } else if (Array.isArray(journal?.entries)) {
+      type = "流水";
+      result = mergePortfolioJournal(journal);
+    } else if (Array.isArray(raw?.holdings)) {
+      throw new Error("识别为分析报表。请使用组合备份或「导出完整历史数据」的 JSON 导入持仓。");
+    } else if (raw?.sourcePeriods && raw?.firstradeJournal) {
+      throw new Error("识别为券商对账归档。请使用配套的「组合备份」JSON。");
+    } else {
+      throw new Error("无法识别。请选择组合备份、持仓、完整历史分析或流水 JSON。");
+    }
+    importStatus = "导入成功 · 识别为"+type+" · "+result;
+    if (type!=="流水") {
+      orders = [];
+      saveSimulationOrders();
+      by("base-currency").value = portfolio.base;
+      drawOrders();
+      loadRates();
+      refreshPortfolioQuotes();
+    }
     draw();
-    loadRates();
-    refreshPortfolioQuotes();
   } catch(error) {
-    if (editorDialog.open) by("editor-error").textContent = error.message;
-    else by("portfolio-status").textContent = "导入失败 · "+error.message;
-  } finally {event.target.value = "";}
+    const message = error instanceof SyntaxError ? "文件无法读取为 JSON。" : error.message;
+    importStatus = "导入失败 · "+message;
+    draw();
+  } finally {
+    importInput.value = "";
+    importButton.disabled = false;
+  }
 });
 
 async function referenceRates(date) {
@@ -707,7 +772,6 @@ async function loadRates() {
 for (const [button,mode] of [["edit-portfolio","positions"],["enter-first","positions"],["edit-exposure","weights"],["edit-rates","rates"],["edit-stress","scenarios"]]) {
   by(button)?.addEventListener("click",()=>edit(mode));
 }
-for (const id of ["editor-import","import-first"]) by(id)?.addEventListener("click",()=>by("import-portfolio").click());
 by("editor-export").addEventListener("click",exportPortfolio);
 for (const id of ["download-example","editor-example"]) {
   by(id)?.addEventListener("click",()=>downloadJson("Market-Portfolio-Example.json",{base:sample.base,positions:sample.positions}));
@@ -786,7 +850,7 @@ initPortfolioJournal();
 drawOrders();
 draw();
 refreshLivePortfolio();
-openDatabase().finally(()=>{
+const portfolioDatabaseReady = openDatabase().finally(()=>{
   if (!demo && !portfolio.navHistory) {
     const initial = recordNavHoldings(portfolio,migrateNavHistory());
     if (initial !== portfolio) {

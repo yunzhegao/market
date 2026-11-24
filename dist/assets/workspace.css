@@ -400,3 +400,4 @@ a.world-cross-quote:is(:hover,:focus-visible) > span {color:var(--accent)}
 .journal-compact>summary small {margin-left:.4rem;color:var(--muted);font-weight:400}
 .journal-actions {margin-top:.42rem}
 .journal-status-line {display:flex;flex-wrap:wrap;gap:.2rem .55rem;align-items:baseline;color:var(--muted)}
+
