@@ -29,6 +29,7 @@ jobs:
             dist/assets/market-data.json
             dist/assets/initial-data.js
             dist/assets/etf-holdings.json
+            dist/assets/etf-sectors.json
           key: market-observations-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: market-observations-v1-
       - name: Update market observations
@@ -36,7 +37,12 @@ jobs:
         run: python3 scripts/update_market_data.py
       - name: Update ETF holdings disclosures
         continue-on-error: true
-        run: python3 scripts/update_etf_holdings.py
+        run: python3 -B scripts/update_etf_holdings.py
+      - name: Update ETF sector disclosures
+        continue-on-error: true
+        run: |
+          command -v pdftotext >/dev/null || sudo apt-get install -y poppler-utils
+          python3 -B scripts/update_etf_sectors.py
       - name: Retain observations for the next run
         uses: actions/cache/save@v4
         with:
@@ -44,6 +50,7 @@ jobs:
             dist/assets/market-data.json
             dist/assets/initial-data.js
             dist/assets/etf-holdings.json
+            dist/assets/etf-sectors.json
           key: market-observations-v1-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Configure market API
         env:
