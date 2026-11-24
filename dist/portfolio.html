@@ -19,9 +19,9 @@
   <script defer src="./assets/portfolio-etf.js?v=disclosures-2"></script>
   <script defer src="./assets/performance-model.js?v=risk-1"></script>
   <script defer src="./assets/portfolio-performance.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio-analysis.js?v=concentration-1"></script>
-  <script defer src="./assets/portfolio-journal.js?v=journal-2"></script>
-  <script defer src="./assets/portfolio.js?v=import-3"></script>
+  <script defer src="./assets/portfolio-analysis.js?v=broker-history-1"></script>
+  <script defer src="./assets/portfolio-journal.js?v=broker-history-1"></script>
+  <script defer src="./assets/portfolio.js?v=exposure-sort-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -77,6 +77,11 @@
       <div id="journal-results" class="journal-results" hidden>
         <span id="journal-growth-period"></span><span>净入金 <strong id="journal-net-in"></strong></span><span><span id="journal-growth-label">投资净增长</span> <strong id="journal-growth"></strong></span>
       </div>
+      <details class="work-method" id="broker-history" hidden>
+        <summary>券商历史与净入金 · USD</summary>
+        <p class="work-note">净增长等于期末减期初再减净入金。Firstrade 按结单单列，跨券商资金未确认配对。</p>
+        <div class="work-table-wrap"><table class="work-table" id="broker-history-table"></table></div>
+      </details>
       <details class="work-method" id="journal-reconciliation" hidden>
         <summary id="journal-reconciliation-summary">持仓对账</summary>
         <p class="work-note" id="journal-reconciliation-status"></p>

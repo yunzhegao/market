@@ -73,7 +73,29 @@ function normalizeJournal(raw) {
   if (coverage && (!validNavDate(coverage.from) || !validNavDate(coverage.to) || coverage.from>=coverage.to || coverage.to>journalToday())) {
     throw new Error("请填写有效的覆盖日期，起点需早于截止日。");
   }
-  return {entries,coverage:coverage ? {from:coverage.from,to:coverage.to} : null};
+  const brokerHistory = raw.brokerHistory == null ? null : normalizeBrokerHistory(raw.brokerHistory);
+  return {entries,coverage:coverage ? {from:coverage.from,to:coverage.to} : null,...(brokerHistory ? {brokerHistory} : {})};
+}
+
+function normalizeBrokerHistory(raw) {
+  if (!Array.isArray(raw.periods) || raw.periods.length>250 ||
+    !Array.isArray(raw.archivedEntries) || raw.archivedEntries.length>10000) {
+    throw new Error("券商历史格式有误。");
+  }
+  const periods = raw.periods.map(row=>{
+    const {scope,from,to,opening,closing,netDeposits,estimated,summary,source} = row ?? {};
+    if (typeof scope!=="string" || !scope.trim() || !validNavDate(from) || !validNavDate(to)
+      || from>to || to>journalToday() || ![opening,closing,netDeposits].every(Number.isFinite)) {
+      throw new Error("请检查券商历史的账户、日期和金额。");
+    }
+    return {scope:cleanText(scope),from,to,opening,closing,netDeposits,estimated:estimated===true,summary:summary===true,source:cleanText(source,240)};
+  });
+  const archivedEntries = raw.archivedEntries.map(row=>normalizeJournalEntry({...row,
+    convertedCurrency:row?.conversion?.currency,convertedAmount:row?.conversion?.amount}));
+  if (new Set(archivedEntries.map(row=>row.id)).size!==archivedEntries.length || archivedEntries.some(row=>row.kind==="equity")) {
+    throw new Error("历史流水含有重复编号或全组合净值。");
+  }
+  return {periods,archivedEntries};
 }
 
 function readPrivateJournal(id=portfolio.journalId) {
@@ -173,18 +195,32 @@ function renderPortfolioJournal() {
   by("journal-growth").className = tone(stats.growth);
   by("journal-growth-period").textContent = period;
   if (!by("journal-table") || !section.open) return;
-  by("journal-details").hidden = !book.entries.length;
-  const rows = book.entries.slice().reverse().sort((a,b)=>(b.date??"").localeCompare(a.date??""));
+  renderBrokerHistory(book.brokerHistory);
+  const archived = book.brokerHistory?.archivedEntries ?? [];
+  by("journal-details").hidden = !book.entries.length && !archived.length;
+  const rows = [...book.entries,...archived.map(row=>({...row,archived:true}))].reverse()
+    .sort((a,b)=>(b.date??"").localeCompare(a.date??""));
   table("journal-table",["日期","记录","账户／标的","金额／股数","状态","操作"],rows.map(row=>[
     td(esc(row.date??"日期待核对")+(row.positionDate && row.positionDate!==row.date?'<small>再投资成交 '+esc(row.positionDate)+'</small>':"")),
     td(esc(journalKinds[row.kind].label)+(row.holdings?'<small>含持仓快照</small>':"")+(row.note?'<small>'+esc(row.note)+'</small>':"")),
     td(esc([row.account,row.symbol].filter(Boolean).join(" · ")||"全组合")),
     td((fnum(row.amount) ? fmt(row.amount)+" "+esc(row.currency) : "—")+(fnum(row.quantity)?'<small>'+esc(row.quantity)+" 股</small>":"")
       +(fnum(row.reinvestAmount) ? '<small>再投资 '+fmt(row.reinvestAmount)+(fnum(row.amount)?" · 现金净变化 "+plus(row.amount-row.reinvestAmount):"")+'</small>' : "")),
-    td(row.pending?"待核对":"已核对"),
-    td('<button type="button" class="text-button" data-journal-id="'+row.id+'">编辑</button>'),
+    td(row.pending?"待核对":row.archived?"券商归档":"已核对"),
+    td(row.archived?"—":'<button type="button" class="text-button" data-journal-id="'+row.id+'">编辑</button>'),
   ]),"暂无流水或净值记录");
   renderJournalReconciliation(book);
+}
+
+function renderBrokerHistory(history) {
+  by("broker-history").hidden = !history?.periods.length;
+  if (!history?.periods.length) return;
+  table("broker-history-table",["账户／区间","期初净值","净入金","期末净值","投资净增长","依据"],history.periods.map(row=>{
+    const growth = Math.round((row.closing-row.opening-row.netDeposits)*100)/100;
+    const label = row.summary ? "<strong>"+esc(row.scope)+"</strong>" : esc(row.scope);
+    return [td(label+"<small>"+esc(row.from+" – "+row.to)+"</small>"),td(fmt(row.opening)),td(plus(row.netDeposits)),
+      td(fmt(row.closing)),td(plus(growth),tone(growth)),td(esc((row.estimated?"暂估 · ":"")+row.source))];
+  }));
 }
 
 function renderJournalReconciliation(book) {

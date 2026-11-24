@@ -305,7 +305,7 @@ function showAttribution(report) {
 }
 
 function showExposure(report,sectors) {
-  const rows = report.underlying.slice().sort((a,b)=>Number(b.direct>0&&b.indirect>0)-Number(a.direct>0&&a.indirect>0)||b.total-a.total);
+  const rows = report.underlying;
   table("lookthrough-table",["标的","直接持有","ETF 间接持有","合计敞口","间接来源"],rows.slice(0,15).map(row=>[
     td(esc(row.symbol)),td(ratio(navWeight(row.direct,report.nav))),
     td(row.indirect>0?ratio(navWeight(row.indirect,report.nav)):'<small>已录入成分未发现</small>'),
