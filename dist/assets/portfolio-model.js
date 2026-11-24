@@ -159,13 +159,17 @@ function cashClass(row) {
   return row.bucket === "reserve" ? "equivalent" : null;
 }
 
-function analyze(positions, state, rates) {
+function isEquityFund(row) {
+  return row.kind === "etf" && ["core","tech","bank","equity"].includes(row.bucket);
+}
+
+function analyze(positions, state, rates, weights = state.weights) {
   const values = valueAssets(positions,state.base,rates);
   const valid = values.filter(row => numeric(row.marketValue));
   const nav = sum(valid,"marketValue");
   const accounted = values.filter(row => numeric(row.totalImpact));
   const individual = new Map(), exposure = new Map();
-  const equityFunds = valid.filter(row => row.kind === "etf" && ["core","tech","bank","equity"].includes(row.bucket));
+  const equityFunds = valid.filter(isEquityFund);
   const entry = key => {
     if (!exposure.has(key)) exposure.set(key,{symbol:key,direct:0,indirect:0,funds:new Map()});
     return exposure.get(key);
@@ -176,7 +180,7 @@ function analyze(positions, state, rates) {
   }
   let covered = 0;
   for (const fund of equityFunds) {
-    for (const member of state.weights.filter(row => row.fund === fund.symbol)) {
+    for (const member of weights.filter(row => row.fund === fund.symbol)) {
       const amount = member.weight * fund.marketValue / 100;
       const underlying = entry(member.member);
       underlying.indirect += amount;

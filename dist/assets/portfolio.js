@@ -95,6 +95,10 @@ function portfolioRowsNow() {
   });
 }
 
+function analyzePortfolio(positions,rates) {
+  return analyze(positions,portfolio,rates,effectiveEtfWeights(portfolio.weights,demo?{}:etfDisclosures));
+}
+
 async function refreshPortfolioQuotes() {
   if (quotesLoading || !livePortfolio || demo) return;
   const symbols = portfolio.positions.filter(row=>row.quantity>0 && row.kind!=="cash").map(row=>row.symbol);
@@ -120,7 +124,7 @@ function downloadJson(filename, data) {
 
 function publicPositions() {
   const rates = effectiveRates(autoRates,portfolio.rates);
-  const report = analyze(portfolioRowsNow(),portfolio,rates);
+  const report = analyzePortfolio(portfolioRowsNow(),rates);
   if (!report.nav || report.validCount!==report.values.length) return [];
   return mergeAssets(report.values).filter(row=>row.kind!=="cash" && row.marketValue>=0).map(row=>({
     symbol:row.symbol,kind:row.kind,name:row.name,weight:Number(navWeight(row.marketValue,report.nav).toFixed(2)),
@@ -285,11 +289,12 @@ function showExposure(report) {
     td(row.indirect>0?ratio(navWeight(row.indirect,report.nav)):'<small>已录入成分未发现</small>'),
     td('<strong>'+ratio(navWeight(row.total,report.nav))+'</strong>'),td(esc([...row.funds.keys()].join(", ")||"—")),
   ]),"暂无可计算的个股或 ETF 成分");
-  const dates = [...new Set(portfolio.weights.map(row=>row.date).filter(Boolean))].sort();
+  const funds = [...new Set(report.values.filter(isEquityFund).map(row=>row.symbol))].sort();
   by("lookthrough-coverage").textContent = "ETF 成分覆盖 "+ratio(report.coverage);
   by("lookthrough-note").textContent = (fnum(report.coverage)
     ? "覆盖率按已计价股票型 ETF 市值加权。"
-    : "暂无可计价的股票型 ETF。") + (dates.length ? " 成分日期 "+dates.join("、")+"。" : "");
+    : "暂无可计价的股票型 ETF。");
+  renderEtfDisclosures(funds,portfolio.weights,demo?{}:etfDisclosures);
 }
 
 function compare(before,after) {
@@ -335,7 +340,7 @@ function compareExposure(before,after) {
 
 function showSimulation(report,rates) {
   const outcome = orders.length ? simulate(portfolioRowsNow(),orders) : null;
-  const after = outcome?.positions ? analyze(outcome.positions,portfolio,rates) : null;
+  const after = outcome?.positions ? analyzePortfolio(outcome.positions,rates) : null;
   const error = outcome?.errors.join(" ");
   by("simulation-error").textContent = error || "";
   compare(report,after);
@@ -350,7 +355,7 @@ function showSimulation(report,rates) {
 
 function draw() {
   const rates = effectiveRates(autoRates,portfolio.rates);
-  const report = analyze(portfolioRowsNow(),portfolio,rates);
+  const report = analyzePortfolio(portfolioRowsNow(),rates);
   by("portfolio-empty").hidden = Boolean(report.values.length);
   by("portfolio-results").hidden = !report.values.length && (demo || !portfolio.navHistory);
   by("portfolio-kpis").hidden = !report.values.length;
@@ -421,7 +426,8 @@ by("trade-list").addEventListener("input",event=>{
   const name = event.target.dataset.orderField;
   if (!name) return;
   orders[Number(event.target.closest("[data-order]").dataset.order)][name] = event.target.value;
-  showSimulation(analyze(portfolioRowsNow(),portfolio,effectiveRates(autoRates,portfolio.rates)),effectiveRates(autoRates,portfolio.rates));
+  const rates = effectiveRates(autoRates,portfolio.rates);
+  showSimulation(analyzePortfolio(portfolioRowsNow(),rates),rates);
 });
 by("add-trade").addEventListener("click",()=>{
   const account = portfolio.positions[0]?.account || "";
@@ -681,6 +687,7 @@ let navInitialized = false;
 const refreshLivePortfolio = (force = false)=>{
   loadRates();
   refreshPortfolioQuotes();
+  refreshEtfDisclosures(force).then(changed=>{if(changed)draw();});
   if (navInitialized) refreshNavHistory(portfolio,livePortfolio,demo,force);
 };
 by("refresh").addEventListener("click",()=>refreshLivePortfolio(true));

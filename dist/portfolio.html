@@ -16,6 +16,7 @@
   <script defer src="./assets/allocation.js"></script>
   <script defer src="./assets/market-plot.js"></script>
   <script defer src="./assets/portfolio-nav.js"></script>
+  <script defer src="./assets/portfolio-etf.js"></script>
   <script defer src="./assets/portfolio.js"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
@@ -113,18 +114,17 @@
           <section class="panel work-panel" aria-labelledby="allocation-title">
             <div class="section-line">
               <h2 id="allocation-title">组合分布与涨跌</h2>
-              <div class="segments" role="group" aria-label="明细层级">
-                <button type="button" data-allocation-mode="category" aria-pressed="true">分类</button>
-                <button type="button" data-allocation-mode="asset" aria-pressed="false">持仓</button>
+              <div class="page-tools">
+                <label class="visually-hidden" for="allocation-account">环图账户</label>
+                <select id="allocation-account"></select>
+                <label class="quote-switch" title="排除账面现金及现金替代"><input type="checkbox" id="allocation-exclude-cash">去除现金</label>
+                <div class="segments" role="group" aria-label="明细层级">
+                  <button type="button" data-allocation-mode="category" aria-pressed="true">分类</button>
+                  <button type="button" data-allocation-mode="asset" aria-pressed="false">持仓</button>
+                </div>
               </div>
             </div>
-            <div class="allocation-layout">
-              <div class="allocation-chart" id="allocation-chart" aria-label="外圈是持仓，内圈是分类"></div>
-              <div class="allocation-key">
-                <div class="allocation-row allocation-head"><span>分类／持仓</span><span>权重</span><span>涨跌</span><span>变动贡献</span></div>
-                <div id="allocation-legend" class="allocation-legend"></div>
-              </div>
-            </div>
+            <div id="allocation-panels" class="allocation-panels"></div>
             <p class="work-note allocation-note" id="allocation-note">内圈为分类，外圈为持仓。涨跌和变动贡献按显示币种计算，含汇率影响。</p>
           </section>
           <section class="panel work-panel" aria-labelledby="holdings-title">
@@ -136,6 +136,11 @@
             <div class="section-line"><div class="exposure-heading"><h2 id="exposure-title">穿透与重叠敞口</h2><span id="lookthrough-coverage" class="coverage-label"></span></div><button type="button" id="edit-exposure" class="text-button">编辑 ETF 成分权重</button></div>
             <div class="work-table-wrap"><table class="work-table" id="lookthrough-table"></table></div>
             <p class="work-note" id="lookthrough-note"></p>
+            <details class="work-method" id="etf-disclosure" hidden>
+              <summary>ETF 持仓披露与变化</summary>
+              <div class="work-table-wrap"><table class="work-table" id="etf-disclosure-table"></table></div>
+              <p class="work-note">对比同一 ETF 最近两期披露。权重变化也受价格影响。</p>
+            </details>
           </section>
         </div>
         <div class="work-stack">
