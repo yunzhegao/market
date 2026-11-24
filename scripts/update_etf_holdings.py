@@ -2,20 +2,26 @@
 """Update public ETF holdings snapshots for the portfolio look-through."""
 
 import argparse
+import csv
 from datetime import date, datetime, timedelta
 from html.parser import HTMLParser
 from io import BytesIO
 import json
 from pathlib import Path
 import re
+from urllib.parse import urljoin, urlsplit
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
 
 SPDR = "https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-spym.xlsx"
+SPY_HOLDINGS = "https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-spy.xlsx"
 SCHWAB = "https://www.schwabassetmanagement.com/allholdings/schd"
-INVESCO = "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/46138G649/holdings/fund"
+SCHWAB_PRODUCT = "https://www.schwabassetmanagement.com/products/schd"
+INVESCO = "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/{cusip}/holdings/fund"
+INVESCO_EXPORT = "https://www.invesco.com/us/financial-products/etfs/holdings?audienceType=Investor&action=download&ticker="
+QQQ_PRODUCT = "https://www.invesco.com/us/en/financial-products/etfs/invesco-qqq-trust-series-1.html"
 OUTPUT = Path(__file__).resolve().parents[1] / "dist/assets/etf-holdings.json"
 XML = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 DATE_TEXT = re.compile(r"\b(?:20\d{2}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/(?:20\d{2}|\d{2})|[A-Za-z]{3,9}\s+\d{1,2},?\s+20\d{2}|\d{1,2}-[A-Za-z]{3}-20\d{2})(?!\d)")
@@ -115,6 +121,41 @@ def read_spdr(content):
     raise ValueError("XLSX holdings columns unavailable")
 
 
+def read_holdings_csv(content, minimum, disclosed_date=None):
+    rows = list(csv.reader(content.decode("utf-8-sig").splitlines()))
+    ticker_names = {"holdingsticker", "holdingticker", "securityticker", "tickersymbol", "ticker", "symbol"}
+    weight_names = {"tna", "percentofassets", "percentofnetassets", "pctofnetassets", "portfolioallocation",
+                    "portfolioallocationpercent", "percentweight", "percentageoffund", "percentageofnetassets"}
+    for index, row in enumerate(rows):
+        columns = {key(value): pos for pos, value in enumerate(row)}
+        ticker = next((pos for label, pos in columns.items() if label in ticker_names), None)
+        weight = next((pos for label, pos in columns.items() if label in weight_names or "weight" in label), None)
+        if ticker is None or weight is None:
+            continue
+        entries = [(row[ticker], row[weight]) for row in rows[index+1:] if len(row)>max(ticker,weight)]
+        date_column = next((pos for label, pos in columns.items() if label in {"asofdate","date","holdingsdate"}), None)
+        dates = {reading_date(row[date_column]) for row in rows[index+1:]
+                 if date_column is not None and len(row)>date_column}
+        dates.discard(None)
+        if len(dates)>1:
+            raise ValueError("holdings CSV has mixed disclosure dates")
+        preamble = (reading_date(value) for row in rows[:index] for value in row)
+        stamp = disclosed_date or next(iter(dates),None) or next((value for value in preamble if value),None)
+        return snapshot(stamp, entries, minimum)
+    raise ValueError("CSV holdings columns unavailable")
+
+
+def read_schwab_export():
+    page = download(SCHWAB_PRODUCT).decode()
+    link = re.search(r'href=["\']([^"\']*SCHD_FundHoldings_(20\d{2}-\d{2}-\d{2})\.csv)["\']', page, re.I)
+    if not link:
+        raise ValueError("Schwab full holdings export unavailable")
+    url = urljoin(SCHWAB_PRODUCT,link[1])
+    if urlsplit(url).netloc!=urlsplit(SCHWAB_PRODUCT).netloc:
+        raise ValueError("unexpected Schwab holdings host")
+    return read_holdings_csv(download(url),90,link[2])
+
+
 class HoldingTable(HTMLParser):
     def __init__(self, content):
         super().__init__()
@@ -143,6 +184,13 @@ class HoldingTable(HTMLParser):
 
 
 def read_schwab():
+    try:
+        return read_schwab_export()
+    except (OSError,ValueError,csv.Error):
+        return read_schwab_pages()
+
+
+def read_schwab_pages():
     entries, stamp = [], None
     for page in range(5):
         table = HoldingTable(download(SCHWAB + f"?page={page}").decode())
@@ -158,6 +206,9 @@ def read_schwab():
         for row in table.rows:
             if len(row) >= 6 and re.fullmatch(r"[A-Z0-9]{9}", row[1]):
                 entries.append((row[2], row[4]))
+        if len(entries)==count:
+            entries.extend(re.findall(r"\bCUSIP\s+[A-Z0-9]{9}\s+Symbol\s+(\S*)\s+Quantity\s+[\d,.%-]+\s+% of Assets\s+([\d.]+)%",
+                                      " ".join(table.text), re.I))
         if len(entries)-count != int(heading[3])-int(heading[2])+1:
             raise ValueError("Schwab holdings page incomplete")
         if int(heading[3]) == int(heading[4]):
@@ -209,19 +260,28 @@ def read_invesco(content):
     raise ValueError("Invesco holdings columns or disclosure date unavailable")
 
 
+def read_invesco_fund(ticker,cusip):
+    try:
+        return read_invesco(download(INVESCO.format(cusip=cusip)))
+    except (OSError,ValueError,KeyError,IndexError):
+        return read_holdings_csv(download(INVESCO_EXPORT+ticker),90)
+
+
 def update(output):
     funds = json.loads(output.read_text()).get("funds", {}) if output.exists() else {}
     sources = {
         "SPYM": ("State Street", "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-portfolio-sp-500-etf-spym", lambda: read_spdr(download(SPDR))),
+        "SPY": ("State Street", "https://www.ssga.com/us/en/intermediary/etfs/state-street-spdr-sp-500-etf-trust-spy", lambda: read_spdr(download(SPY_HOLDINGS))),
         "SCHD": ("Schwab", SCHWAB, read_schwab),
-        "QQQM": ("Invesco", "https://www.invesco.com/us/en/financial-products/etfs/invesco-nasdaq-100-etf.html", lambda: read_invesco(download(INVESCO))),
+        "QQQM": ("Invesco", "https://www.invesco.com/us/en/financial-products/etfs/invesco-nasdaq-100-etf.html", lambda: read_invesco_fund("QQQM","46138G649")),
+        "QQQ": ("Invesco", QQQ_PRODUCT, lambda: read_invesco_fund("QQQ","46090E103")),
     }
     for ticker, (source, url, read) in sources.items():
         old = funds.get(ticker, {})
         current = old.get("current")
         try:
             incoming = read()
-        except (OSError, ValueError, KeyError, IndexError, ET.ParseError) as error:
+        except (OSError, ValueError, KeyError, IndexError, ET.ParseError, csv.Error) as error:
             print(f"{ticker}: {error}")
             funds[ticker] = {**old, "source": source, "url": url, "unavailable": True}
             continue

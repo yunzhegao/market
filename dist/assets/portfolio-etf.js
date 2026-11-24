@@ -4,6 +4,14 @@ let etfDisclosures = {};
 let lastEtfRequest = 0;
 let loadingEtfDisclosures = false;
 
+const etfDisclosureSites = {
+  SPYM:{url:"https://www.ssga.com/us/en/individual/etfs/state-street-spdr-portfolio-sp-500-etf-spym",reference:"SPY"},
+  SPY:{url:"https://www.ssga.com/us/en/intermediary/etfs/state-street-spdr-sp-500-etf-trust-spy"},
+  QQQM:{url:"https://www.invesco.com/us/en/financial-products/etfs/invesco-nasdaq-100-etf.html",reference:"QQQ"},
+  QQQ:{url:"https://www.invesco.com/us/en/financial-products/etfs/invesco-qqq-trust-series-1.html"},
+  SCHD:{url:"https://www.schwabassetmanagement.com/allholdings/schd"},
+};
+
 function etfSnapshot(snapshot) {
   if (!validNavDate(snapshot?.date) || !Array.isArray(snapshot.rows)) return null;
   const rows = snapshot.rows.filter(row=>Array.isArray(row) && typeof row[0]==="string" && symbolValid(row[0])
@@ -33,17 +41,22 @@ async function refreshEtfDisclosures(force=false) {
 }
 
 function etfWeightSource(fund, weights, disclosures) {
-  const automatic = Object.hasOwn(disclosures,fund) ? disclosures[fund] : null;
+  const direct = Object.hasOwn(disclosures,fund) ? disclosures[fund] : null;
+  const reference = etfDisclosureSites[fund]?.reference;
+  const proxy = reference ? disclosures[reference] : null;
+  const useProxy = Boolean(proxy?.current && (!direct?.current || (direct.unavailable && proxy.current.date>direct.current.date)));
+  const automatic = useProxy ? proxy : direct;
   const manual = weights.filter(row=>row.fund===fund);
   const newerManual = manual.some(row=>validNavDate(row.date) && row.date>automatic?.current?.date);
-  return {automatic,manual,useAutomatic:Boolean(automatic?.current && !newerManual)};
+  return {automatic,manual,reference:useProxy?reference:null,useAutomatic:Boolean(automatic?.current && !newerManual)};
 }
 
 function effectiveEtfWeights(weights, disclosures) {
-  const funds = new Set([...weights.map(row=>row.fund),...Object.keys(disclosures)]);
+  const funds = new Set([...weights.map(row=>row.fund),...Object.keys(disclosures),...Object.keys(etfDisclosureSites)]);
   return [...funds].flatMap(fund=>{
-    const {automatic,manual,useAutomatic} = etfWeightSource(fund,weights,disclosures);
-    return useAutomatic ? automatic.current.rows.map(([member,weight])=>({fund,member,weight,date:automatic.current.date,source:automatic.source})) : manual;
+    const {automatic,manual,reference,useAutomatic} = etfWeightSource(fund,weights,disclosures);
+    return useAutomatic ? automatic.current.rows.map(([member,weight])=>({fund,member,weight,date:automatic.current.date,
+      source:reference?automatic.source+" · "+reference+" 同指数参考":automatic.source,...(reference?{referenceFund:reference}:{})})) : manual;
   });
 }
 
@@ -67,25 +80,33 @@ function renderEtfDisclosures(funds, weights, disclosures) {
   by("etf-disclosure").hidden = !funds.length;
   if (!funds.length) return;
   table("etf-disclosure-table",["ETF","成分日期与来源","披露持仓变化"],funds.map(fund=>{
-    const {automatic,manual,useAutomatic} = etfWeightSource(fund,weights,disclosures);
+    const {automatic,manual,reference,useAutomatic} = etfWeightSource(fund,weights,disclosures);
+    const site = etfDisclosureSites[fund];
+    const link = (url,label)=>url ? '<a class="text-button" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+'</a>' : esc(label);
+    const alternatives = [site?.url ? link(site.url,fund+" 官方披露") : "", site?.reference && !reference
+      ? link(etfDisclosureSites[site.reference].url,site.reference+" 同指数参考") : ""].filter(Boolean);
     if (!useAutomatic) {
       const manualDate = manual.map(row=>row.date).filter(validNavDate).sort().at(-1);
-      const manualLabel = manual.length ? (manualDate?manualDate+" · ":"")+"手动成分" : "—";
-      return [td(esc(fund)),td(esc(manualLabel)),
-        td(automatic?.unavailable?"发布方数据暂不可用":automatic?.current?"采用更新的手动成分":"暂无自动成分数据")];
+      const manualLabel = manual.length ? (manualDate?manualDate+" · ":"")+"手动成分" : "暂无成分快照";
+      return [td(esc(fund)),td([esc(manualLabel),...alternatives].join(" · ")),
+        td(automatic?.current?"采用更新的手动成分":"待获取发行人披露")];
     }
     const {source,url,current,previous,unavailable} = automatic;
-    const link = url ? '<a class="text-button" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">'+esc(source)+'</a>' : esc(source);
+    const origin = link(url,reference?reference+" 同指数参考":source);
     const date = current.date+(unavailable?" · 沿用":"");
-    return [td(esc(fund)),td(esc(date)+" · "+link),td(esc((previous?previous.date+" → "+current.date+" · ":"")
+    const otherLinks = reference ? alternatives : alternatives.slice(1);
+    return [td(esc(fund)),td([esc(date),origin,...otherLinks].join(" · ")),td(esc((previous?previous.date+" → "+current.date+" · ":"")
       +etfChanges(current,previous)))];
   }));
 }
 
-const sectorNames = {
+const equitySectorNames = {
   technology:"信息技术",financials:"金融",communication:"通讯服务",health:"医疗保健",
   discretionary:"非必需消费",industrial:"工业",staples:"必需消费",energy:"能源",
-  utilities:"公用事业",realestate:"房地产",materials:"原材料",gold:"黄金",
+  utilities:"公用事业",realestate:"房地产",materials:"原材料",
+};
+const sectorNames = {
+  ...equitySectorNames,gold:"黄金",
   duration:"长久期债券",reserve:"现金替代",cash:"现金",unknown:"行业未分类",
 };
 const knownStockSectors = {

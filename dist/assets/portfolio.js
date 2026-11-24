@@ -312,11 +312,17 @@ function showExposure(report,sectors) {
     td('<strong>'+ratio(navWeight(row.total,report.nav))+'</strong>'),td(esc([...row.funds.keys()].join(", ")||"—")),
   ]),"暂无可计算的个股或 ETF 成分");
   const funds = [...new Set(report.values.filter(isEquityFund).map(row=>row.symbol))].sort();
+  const disclosures = demo ? {} : etfDisclosures;
+  const references = funds.flatMap(fund=>{
+    const source = etfWeightSource(fund,portfolio.weights,disclosures);
+    return source.useAutomatic && source.reference ? [fund+" 参考 "+source.reference] : [];
+  });
   by("lookthrough-coverage").textContent = "ETF 成分覆盖 "+ratio(report.coverage);
   by("lookthrough-note").textContent = (fnum(report.coverage)
     ? "覆盖率按已计价股票型 ETF 市值加权。其余成分敞口未知，表中合计为已知值。"
+      +(references.length ? " 同指数参考权重为估算（"+references.join("、")+"）。" : "")
     : "暂无可计价的股票型 ETF。");
-  renderEtfDisclosures(funds,portfolio.weights,demo?{}:etfDisclosures);
+  renderEtfDisclosures(funds,portfolio.weights,disclosures);
   renderSectorExposure(report,sectors);
 }
 
@@ -815,7 +821,7 @@ window.addEventListener("storage",event=>{
     draw();
   }
   if (event.key===concentrationLimitsKey) {
-    const limits = localRead(concentrationLimitsKey,{});
+    const limits = readConcentrationLimits();
     for (const key of Object.keys(concentrationFields)) {
       if (!fnum(limits[key])) continue;
       analysisLimits[key] = limits[key];

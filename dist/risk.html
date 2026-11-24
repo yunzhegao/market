@@ -15,12 +15,12 @@
   <script defer src="./assets/workspace.js?v=risk-1"></script>
   <script defer src="./assets/market-plot.js?v=performance-2"></script>
   <script defer src="./assets/portfolio-nav.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio-etf.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio-etf.js?v=concentration-1"></script>
   <script defer src="./assets/performance-model.js?v=risk-1"></script>
   <script defer src="./assets/portfolio-performance.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio-analysis.js?v=journal-1"></script>
+  <script defer src="./assets/portfolio-analysis.js?v=concentration-1"></script>
   <script defer src="./assets/portfolio-journal.js?v=journal-2"></script>
-  <script defer src="./assets/portfolio.js?v=journal-1"></script>
+  <script defer src="./assets/portfolio.js?v=concentration-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -197,9 +197,9 @@
             <div class="concentration-grid">
               <div><h3>最大个股敞口</h3><strong id="concentration-largest"></strong><small id="concentration-largest-status"></small><label>上限 % <input id="concentration-largest-limit" type="number" min="0" max="100" step="any"></label></div>
               <div><h3>前三大个股敞口</h3><strong id="concentration-topThree"></strong><small id="concentration-topThree-status"></small><label>上限 % <input id="concentration-topThree-limit" type="number" min="0" max="100" step="any"></label></div>
-              <div><h3>金融行业敞口</h3><strong id="concentration-financial"></strong><small id="concentration-financial-status"></small><label>上限 % <input id="concentration-financial-limit" type="number" min="0" max="100" step="any"></label></div>
+              <div><h3>最高单一行业敞口</h3><strong id="concentration-largestIndustry"></strong><small id="concentration-largestIndustry-status"></small><label>上限 % <input id="concentration-largestIndustry-limit" type="number" min="0" max="100" step="any"></label></div>
             </div>
-            <p class="work-note">包含已知 ETF 间接持仓，分母为已计价组合总市值。缺少披露或报价时，预警按已知敞口判断。</p>
+            <p class="work-note">包含已知 ETF 间接持仓，分母为已计价组合总市值。单一行业从已识别的股票行业中取最高值，未分类敞口单独保留。</p>
           </section>
       </div>
     </div>

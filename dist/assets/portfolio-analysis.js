@@ -12,10 +12,14 @@ const analysisRates = localRead(analysisRateKey,{});
 const concentrationFields = {
   largest:{label:"最大个股敞口",defaultLimit:7},
   topThree:{label:"前三大个股敞口",defaultLimit:20},
-  financial:{label:"金融行业敞口",defaultLimit:25},
+  largestIndustry:{label:"最高单一行业敞口",defaultLimit:25},
 };
+function readConcentrationLimits() {
+  const saved = localRead(concentrationLimitsKey,{});
+  return {...saved,largestIndustry:saved.largestIndustry ?? saved.financial};
+}
 const analysisLimits = Object.fromEntries(Object.entries(concentrationFields).map(([key,{defaultLimit}])=>{
-  const stored = localRead(concentrationLimitsKey,{})[key];
+  const stored = readConcentrationLimits()[key];
   return [key,fnum(stored) && stored>=0 && stored<=100 ? stored : defaultLimit];
 }));
 const analysisAnnualRate = base => {
@@ -26,19 +30,21 @@ const analysisAnnualRate = base => {
 function concentrationSnapshot(report,sectors) {
   const valued = report.values.some(row=>row.quantity>0 && !fnum(row.marketValue));
   const top = report.underlying.filter(row=>row.total>0).slice(0,3);
-  const financial = sectors.entries.find(([key])=>key==="financials")?.[1] ?? [];
+  const industry = sectors.entries.filter(([key])=>Object.hasOwn(equitySectorNames,key))
+    .map(([key,[direct,indirect]])=>({key,total:direct+indirect})).sort((a,b)=>b.total-a.total)[0];
   const unknown = sectors.entries.find(([key])=>key==="unknown")?.[1] ?? [];
   const hasUnknownStocks = valued || (fnum(report.coverage) && report.coverage<99.95);
   const hasUnknownSectors = valued || unknown.some(value=>value>0);
   return {
     largest:{value:navWeight(top[0]?.total ?? 0,report.nav),names:top.slice(0,1).map(row=>row.symbol),partial:hasUnknownStocks},
     topThree:{value:navWeight(sum(top,"total"),report.nav),names:top.map(row=>row.symbol),partial:hasUnknownStocks},
-    financial:{value:navWeight(financial.reduce((total,value)=>total+value,0),report.nav),names:[],partial:hasUnknownSectors},
+    largestIndustry:{value:!industry && hasUnknownSectors ? null : navWeight(industry?.total??0,report.nav),
+      names:industry ? [equitySectorNames[industry.key]] : [],partial:hasUnknownSectors},
   };
 }
 
 function concentrationStatus(item,limit) {
-  if (!fnum(item?.value)) return "缺少估值";
+  if (!fnum(item?.value)) return item?.partial ? "敞口待核对" : "缺少估值";
   if (item.value>limit) return "已超上限";
   return item.partial ? "已知值未超 · 有缺项" : "未超上限";
 }
