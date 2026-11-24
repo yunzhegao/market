@@ -80,7 +80,8 @@ async function yahooChart(key, hostname, interval, range) {
 }
 
 async function yahooSymbolChart(symbol, hostname, interval, range, includePrePost = false) {
-  const query = new URLSearchParams({interval, range, includePrePost: String(includePrePost)});
+  const bounds = typeof range === "string" ? {range} : range;
+  const query = new URLSearchParams({interval, ...bounds, includePrePost: String(includePrePost)});
   const url = "https://" + hostname + "/v8/finance/chart/" + encodeURIComponent(symbol) + "?" + query;
   const data = await upstream(url);
   const result = data.chart?.result?.[0];
@@ -614,6 +615,46 @@ async function latestFx() {
   return rates;
 }
 
+const dayMs = 86400000;
+const valuationBarMs = 15 * 60000;
+
+function valuationDate(cutoff) {
+  return new Date(cutoff + 8 * 3600000).toISOString().slice(0,10);
+}
+
+function valuationCutoffs(from, to, now = Date.now()) {
+  const parse = date => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return NaN;
+    const at = Date.parse(date + "T06:00:00+08:00");
+    return finite(at) && valuationDate(at) === date ? at : NaN;
+  };
+  const first = parse(from), last = parse(to);
+  if (!finite(first) || !finite(last) || first > last || last > now-30*60000 || first < now-31*dayMs) return [];
+  return Array.from({length:(last-first)/dayMs+1}, (_,i)=>first+i*dayMs);
+}
+
+async function valuationPrices(symbol, cutoffs) {
+  const maxAge = 4 * dayMs;
+  const bounds = {period1:(cutoffs[0]-maxAge)/1000, period2:cutoffs.at(-1)/1000};
+  for (const host of yahooHosts) {
+    try {
+      const chart = await yahooSymbolChart(symbol,host,"15m",bounds);
+      const bars = yahooRows(chart).filter(row=>row[1]>0).sort((a,b)=>a[0]-b[0]);
+      if (!bars.length || !chart.meta?.currency) continue;
+      let index = 0;
+      const rows = cutoffs.flatMap(cutoff=>{
+        while (index < bars.length && bars[index][0]+valuationBarMs <= cutoff) index++;
+        const bar = bars[index-1];
+        return bar && bar[0]+valuationBarMs >= cutoff-maxAge ? [[valuationDate(cutoff),bar[1]]] : [];
+      });
+      if (rows.length) return {currency:chart.meta.currency,rows};
+    } catch {
+      // Try the second chart host when one feed cannot provide historical bars.
+    }
+  }
+  return null;
+}
+
 const treasuryTerms = {DGS2:"2 Yr", DGS5:"5 Yr", DGS10:"10 Yr", DGS30:"30 Yr"};
 
 async function worldTreasury() {
@@ -738,6 +779,15 @@ export default {
     if (scope === "fx") {
       const rates = await latestFx();
       return Response.json({rates}, {status: Object.keys(rates).length > 1 ? 200 : 503, headers});
+    }
+    if (scope === "valuation") {
+      const symbols = [...new Set((url.searchParams.get("symbols") || "").split(","))];
+      const cutoffs = valuationCutoffs(url.searchParams.get("from"),url.searchParams.get("to"));
+      if (!cutoffs.length || symbols.length > 8 || !symbols.every(symbol=>worldSymbol.test(symbol))) {
+        return Response.json({error:"valuation"},{status:400,headers});
+      }
+      const prices = await gather(symbols,symbol=>valuationPrices(symbol,cutoffs));
+      return Response.json({prices},{status:Object.values(prices).some(Boolean)?200:503,headers});
     }
     if (scope === "context") {
       const context = await gather(Object.keys(marketContextSources), key => marketContextSources[key]());

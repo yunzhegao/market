@@ -14,6 +14,7 @@
   <script defer src="./assets/portfolio-model.js"></script>
   <script defer src="./assets/workspace.js"></script>
   <script defer src="./assets/allocation.js"></script>
+  <script defer src="./assets/portfolio-nav.js"></script>
   <script defer src="./assets/portfolio.js"></script>
 </head>
 <body>
@@ -70,6 +71,20 @@
     </section>
     <div id="portfolio-results" hidden>
       <section id="portfolio-kpis" class="portfolio-kpis" aria-label="组合概况"></section>
+      <section id="nav-history" class="panel work-panel nav-history" aria-labelledby="nav-history-title" hidden>
+        <div class="section-line"><h2 id="nav-history-title">同一时点净值</h2><span>近 30 天 · 每日 06:00 新加坡时间</span></div>
+        <p id="nav-history-status" class="work-note" role="status"></p>
+        <div id="nav-history-data" hidden>
+          <p id="nav-history-summary" class="nav-history-summary"></p>
+          <div id="nav-history-chart"></div>
+          <p id="nav-history-dates" class="work-note"></p>
+          <details class="work-method nav-history-details">
+            <summary>每日估值明细</summary>
+            <div class="work-table-wrap"><table class="work-table" id="nav-history-table"></table></div>
+          </details>
+        </div>
+        <p class="work-note">按固定时点前最后可用的行情和汇率估值，缺项的日期留空。净值变化含入出金及持仓调整。</p>
+      </section>
       <div class="portfolio-layout">
         <div class="work-stack">
           <section class="panel work-panel" aria-labelledby="allocation-title">

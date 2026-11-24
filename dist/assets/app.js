@@ -738,17 +738,24 @@ function withQuote(rows, quote) {
 function renderMarketRows(id, labels) {
   const markup = labels.map(([key, title, unit]) => {
     const data = series(key);
+    if (key === "DGS10") {
+      const reading = dailyObservation(data);
+      const meta = observationMeta(reading);
+      const fallback = reading && observationFallback(key, reading.date);
+      return '<button class="cross-row cross-observation indicator-trigger" type="button" data-indicator="DGS10" aria-haspopup="dialog">'
+        + '<b class="cross-name">' + title + '</b><strong>' + (reading ? decimal(reading.value) + unit : "—") + '</strong>'
+        + '<span class="' + direction(reading?.move) + '">' + observationBasisPoints(reading) + '</span>'
+        + '<small class="cross-observation-meta" title="' + meta.full + '">' + meta.short
+        + (fallback ? ' · 沿用' : '') + '</small></button>';
+    }
     const live = liveQuote(key);
     const current = live?.price ?? close(data.rows);
-    const value = key === "DGS10" ? (current - previous(data.rows)) * 100 : marketChange(key);
+    const value = marketChange(key);
     const date = live?.date ?? last(data.rows)?.[0];
     const stamp = live ? quoteTime(live) : shortDate(date);
     const observed = observedAt(date, live?.time);
     const age = observed ? '<small class="data-age" data-observed="' + observed + '">' + dataAge(observed) + '</small>' : "";
-    const fallback = key === "DGS10" ? observationFallback(key, date) : "";
-    const timing = fallback ? '<small class="observation-fallback" title="' + (date || "") + '">' + fallback + '</small>'
-      : '<small>' + stamp + '</small>' + age;
-    return '<button class="cross-row indicator-trigger" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span class="cross-name"><b>' + title + '</b><span class="cross-time">' + timing + '</span></span><strong>' + decimal(current) + (finite(current) ? unit : "") + '</strong><span class="' + direction(value) + '">' + (key === "DGS10" ? signed(value, 0, " bp") : percentage(value)) + '</span></button>';
+    return '<button class="cross-row indicator-trigger" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span class="cross-name"><b>' + title + '</b><span class="cross-time"><small>' + stamp + '</small>' + age + '</span></span><strong>' + decimal(current) + (finite(current) ? unit : "") + '</strong><span class="' + direction(value) + '">' + percentage(value) + '</span></button>';
   }).join("");
   updateMetricButtons(id, markup);
 }
@@ -756,16 +763,16 @@ function renderMarketRows(id, labels) {
 function renderStatus() {
   const checked = state.checkedAt ?? snapshot?.checkedAt ?? state.data?.checkedAt;
   const time = byId("sync-time");
+  const failures = failuresLabel();
   time.hidden = !checked || !finite(Date.parse(checked));
   if (!time.hidden) {
     time.dateTime = checked;
     time.textContent = (state.checkedAt ? "请求 " : filePage && !canFetchMarket ? "离线快照 " : "快照 ") + beijingTime.format(new Date(checked)) + " 北京 · " + easternHeaderTime.format(new Date(checked)) + " 美东";
     time.title = state.checkedAt ? "本次请求时间（北京 / 美东）" : "随网页发布的快照（北京 / 美东）";
+    if (failures) time.title += " · 核对未完成（" + failures + "）";
   }
   const status = byId("sync-status");
-  const failures = failuresLabel();
-  status.textContent = missingPagesApi ? "GitHub Pages 尚未配置行情接口 · 显示快照"
-    : failures ? "本次核对失败，是否有新值未知 · " + failures : "";
+  status.textContent = missingPagesApi ? "GitHub Pages 尚未配置行情接口 · 显示快照" : "";
   status.hidden = status.textContent === "";
 }
 

@@ -73,15 +73,22 @@ const overviewSymbols = [
 ];
 const overviewIndices = overviewSymbols.map(symbol=>indexRows.find(row=>row.symbol===symbol));
 const crossGroups = [
-  ["指数期货",[["ES=F","标普 500 期货"],["NQ=F","纳指 100 期货"]]],
-  ["商品",[["GC=F","黄金期货"],["CL=F","WTI 原油期货"]]],
-  ["外汇",[["DX-Y.NYB","美元指数"],["USDCNH=X","美元／离岸人民币"]]],
-  ["美国国债收益率",[["DGS2","2 年期"],["DGS10","10 年期"]]],
+  ["world-cross-futures",[["ES=F","标普 500 期货"],["NQ=F","纳指 100 期货"]]],
+  ["world-cross-commodities",[["GC=F","黄金期货"],["CL=F","WTI 原油期货"]]],
+  ["world-cross-yields",[["DGS2","2 年期"],["DGS10","10 年期"]]],
 ];
-const crossSymbols = crossGroups.slice(0,-1).flatMap(([,rows])=>rows.map(([symbol])=>symbol));
+const fxLegs = {EUR:"EURUSD=X",SGD:"USDSGD=X",CNH:"USDCNH=X",HKD:"USDHKD=X"};
+const fxNames = {EUR:"欧元",SGD:"新加坡元",CNH:"离岸人民币",USD:"美元",HKD:"港元"};
+const fxReferenceKey = "market-world-fx-reference";
+const fxReferenceButtons = document.querySelectorAll("[data-fx-reference]");
+let fxReference = localRead(fxReferenceKey,"USD")==="HKD" ? "HKD" : "USD";
+const convertedFx = new Map();
+const crossSymbols = crossGroups.slice(0,-1).flatMap(([,rows])=>rows.map(([symbol])=>symbol))
+  .concat("DX-Y.NYB",Object.values(fxLegs));
 const treasurySymbols = new Set(crossGroups.at(-1)[1].map(([symbol])=>symbol));
 const regionNames = new Intl.DisplayNames(["zh-CN"],{type:"region"});
-const quotes = {...window.WORLD_SNAPSHOT?.quotes};
+const snapshotQuotes = window.WORLD_SNAPSHOT?.quotes ?? {};
+const quotes = {...snapshotQuotes};
 const yields = {...window.WORLD_SNAPSHOT?.yields};
 const fresh = new Set();
 const adrReferences = new Map();
@@ -127,10 +134,7 @@ function quoteIsStale(reading) {
   return fnum(stamp) && Date.now()-stamp>fourDays;
 }
 
-function changeLabel(reading, move, unit="%") {
-  if (quoteIsStale(reading)) return "报价过期";
-  return unit==="bp" && fnum(move) ? plus(move,0)+" bp" : pctText(move);
-}
+const changeLabel = (reading, move) => quoteIsStale(reading) ? "报价过期" : pctText(move);
 
 function sourceUrl(symbol) {
   if (symbol==="IMOEX") return quotes[symbol]?.source==="investing" ? "https://www.investing.com/indices/mcx-historical-data" : "https://www.moex.com/en/index/IMOEX";
@@ -151,7 +155,7 @@ let pointerPosition;
 let dismissedAt;
 
 function globePoint(lon,lat) {
-  return [500+lon*2.76*(.77+.23*Math.cos(lat*Math.PI/180)),218-2.39*lat];
+  return [500+lon*2.66,218-2.39*lat];
 }
 
 const mapMarkers = venues.map(([country,city,lon,lat,indices])=>{
@@ -233,7 +237,12 @@ function positionMarketPanel() {
   globePopup.style.top=Math.max(0,Math.min(y-20,box.height-height))+"px";
 }
 
-function renderMarketPanel(holdings) {
+function mapVenueStatus(country,symbol,now) {
+  const reading = quotes[symbol];
+  return globeMarketStatus(country,reading,now,Boolean(reading && reading!==snapshotQuotes[symbol]));
+}
+
+function renderMarketPanel(holdings, now = Date.now()) {
   if (!activeMarket) return;
   const {country,city}=activeMarket;
   const indices=indexRows.filter(row=>row.country===country);
@@ -241,6 +250,9 @@ function renderMarketPanel(holdings) {
   if (!indices.length&&!stocks.length) {closeMarketPanel();return;}
   const name=countryName(country);
   by("globe-popup-title").textContent=city&&city!==name ? name+" · "+city : name;
+  const primary = indices.find(row=>row.city===city) ?? indices[0] ?? stocks[0];
+  const timing = mapVenueStatus(country,primary?.symbol,now);
+  by("globe-popup-session").textContent = (timing.clock ? "当地 "+timing.clock+" · " : "")+timing.label;
   const contents=by("globe-popup-rows");
   if (contents.dataset.country!==country||!contents.contains(document.activeElement)) {
     contents.dataset.country=country;
@@ -340,6 +352,10 @@ new ResizeObserver(()=>{layoutGlobeLabels();positionMarketPanel();}).observe(glo
 document.fonts.ready.then(layoutGlobeLabels);
 
 function renderGlobe(holdings) {
+  const now=Date.now();
+  const solar=globeSolarPaths(now,globePoint);
+  by("globe-night").setAttribute("d",solar.night);
+  by("globe-terminator").setAttribute("d",solar.terminator);
   const countries=new Set(indexRows.concat(holdings).map(row=>row.country));
   for (const row of holdings) for (const market of row.adrMarkets) countries.add(market.country);
   for (const [country,path] of mapAreas) path.classList.toggle("globe-market-area",countries.has(country));
@@ -348,14 +364,17 @@ function renderGlobe(holdings) {
     const move=moveOf(reading);
     const stale=quoteIsStale(reading);
     const change=changeLabel(reading,move);
+    const {country}=button.dataset;
+    const timing=mapVenueStatus(country,symbol,now);
+    button.dataset.marketState=timing.state;
     button.classList.toggle("up",!stale&&move>0);
     button.classList.toggle("down",!stale&&move<0);
     button.classList.toggle("market-stale",stale);
-    button.setAttribute("aria-label",[button.dataset.city,name,change,"查看当地指数与持仓"].join(" · "));
+    button.setAttribute("aria-label",[button.dataset.city,name,timing.label,change,"查看当地指数与持仓"].join(" · "));
     value.textContent=change;
   }
   layoutGlobeLabels();
-  renderMarketPanel(holdings);
+  renderMarketPanel(holdings,now);
 }
 
 function marketSpark(values,direction) {
@@ -372,7 +391,29 @@ function matches(row) {
   return !needle || (row.symbol+" "+row.name).toUpperCase().includes(needle);
 }
 
-function marketRow({symbol,name,held,localPrice,isAdr,adrMarkets=[]}) {
+function overviewSession(reading, now = Date.now()) {
+  if (!reading || quoteIsStale(reading)) return "";
+  const zone = reading.timezone || "UTC";
+  const today = timeAt(now,zone,true).split(" ")[0];
+  const [date, clock] = timeAt(reading.time,zone,true).split(" ");
+  const sameDay = reading.observationDate ? reading.observationDate === today.replaceAll("/","-") : date === today;
+  if (reading.observationDate) return sameDay ? "已收盘" : "前收";
+  if (reading.session === "pre") return "盘前";
+  if (reading.session === "post") return "盘后";
+  if (!fnum(reading.sessionEnd)) return "时段待确认";
+  const [sessionDate, endClock] = timeAt(reading.sessionEnd-60000,zone,true).split(" ");
+  if (date === sessionDate && reading.time >= reading.sessionEnd-60000) return sameDay ? "已收盘" : "前收";
+  if (!sameDay) return clock >= endClock ? "前收" : "上次报价";
+  if (sessionDate > date && clock >= endClock) return "已收盘";
+  if (reading.session === "regular" || (reading.time >= reading.sessionStart && date === sessionDate)) {
+    const minutes = Math.floor((now-reading.time)/60000);
+    const delay = minutes >= 15 ? minutes : reading.delayMinutes;
+    return delay > 0 ? "盘中·延迟"+delay+"分" : "盘中";
+  }
+  return "时段待确认";
+}
+
+function marketRow({symbol,name,label=name,held,localPrice,isAdr,adrMarkets=[]}, overview = false) {
   const reading=quotes[symbol];
   const move=moveOf(reading);
   const time=reading?(reading.observationDate?.slice(5).replace("-","/")??timeAt(reading.time,reading.timezone)):fnum(localPrice)?"手动价":"暂无报价";
@@ -380,31 +421,76 @@ function marketRow({symbol,name,held,localPrice,isAdr,adrMarkets=[]}) {
   const source=reading?quoteStamp(reading):time;
   const status=reading?(stale?" · 报价过期":!fresh.has(symbol)?" · 最近可用":""):"";
   const markets=adrMarkets.length?" · 原股 "+adrMarkets.map(market=>countryName(market.country)).join(" / "):"";
-  return '<a class="market-line" href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer" title="'+esc(name+" "+displaySymbol(symbol)+" · "+source+status+markets)+'">'
-    +'<div class="market-name"><span>'+esc(name)+'</span><small>'+esc(displaySymbol(symbol))+(isAdr?' · ADR':held?' · 持仓':'')
+  const link = '<a class="market-line" href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer" title="'+esc(name+" "+displaySymbol(symbol)+" · "+source+status+markets)+'">';
+  const price = '<div class="market-number"><strong>'+fmt(reading?.price??localPrice)+'</strong></div>';
+  const change = '<strong class="'+(stale?'market-stale':tone(move))+'">'+changeLabel(reading,move)+'</strong>';
+  if (overview) {
+    const session = overviewSession(reading);
+    return link+'<div class="market-name"><span>'+esc(label)+'</span></div>'+price
+      +'<div class="market-number">'+change+'</div><small class="overview-quote-status">'+esc(session)+'</small>'
+      +'<small class="overview-quote-time">'+esc(time)+'</small></a>';
+  }
+  return link+'<div class="market-name"><span>'+esc(name)+'</span><small>'+esc(displaySymbol(symbol))+(isAdr?' · ADR':held?' · 持仓':'')
     +(sessionNames[reading?.session]?' · '+sessionNames[reading.session]:reading?.delayMinutes?' · 延迟':'')+esc(markets)+'</small></div>'
     +marketSpark(stale?null:reading?.spark,tone(move))
-    +'<div class="market-number"><strong>'+fmt(reading?.price??localPrice)+'</strong></div>'
-    +'<div class="market-number"><strong class="'+(stale?'market-stale':tone(move))+'">'+changeLabel(reading,move)+'</strong><small>'
-    +esc(time)+'</small></div></a>';
+    +price+'<div class="market-number">'+change+'<small>'+esc(time)+'</small></div></a>';
 }
 
 function latestYield(symbol) {
-  const rows=yields[symbol]?.rows;
-  const current=rows?.at(-1);
-  return current ? {observationDate:current[0],price:current[1],previous:rows.at(-2)?.[1]} : null;
+  return dailyObservation(yields[symbol]);
 }
 
-function crossQuote([symbol,name]) {
+function crossQuote([symbol,name], fxReading = null) {
+  const calculated = !symbol;
   const isYield=treasurySymbols.has(symbol);
-  const reading=isYield?latestYield(symbol):quotes[symbol];
-  const move=isYield?Math.round((reading?.price-reading?.previous)*100):moveOf(reading);
-  const price=fmt(reading?.price,symbol==="USDCNH=X"?4:2)+(isYield&&reading?"%":"");
-  const stamp=reading?(isYield?reading.observationDate:quoteStamp(reading)):"暂无报价";
-  const change=changeLabel(reading,move,isYield?"bp":"%");
-  return '<a class="world-cross-quote" href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer">'
-    +'<span>'+esc(name)+'</span><strong>'+price+'</strong><small>'+esc(stamp)+'</small>'
-    +'<b class="'+(quoteIsStale(reading)?'market-stale':tone(move))+'">'+change+'</b></a>';
+  const daily=isYield?latestYield(symbol):null;
+  const reading=isYield?(daily && {observationDate:daily.date,price:daily.value}):calculated?fxReading:quotes[symbol];
+  const move=isYield?daily?.move:moveOf(reading);
+  const price=fmt(reading?.price,calculated||symbol.endsWith("=X")?4:2)+(isYield&&reading?"%":"");
+  const meta=isYield?observationMeta(daily):null;
+  const stamp=reading&&!isYield?(calculated?"换算 · ":"")+quoteStamp(reading):"暂无报价";
+  const stale=quoteIsStale(reading);
+  const change=isYield ? observationBasisPoints(daily) : changeLabel(reading,move);
+  const tag=calculated?"div":"a";
+  const attributes=calculated?' title="使用实际美元汇率交叉换算，时间取较早的一笔"'
+    :' href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer"';
+  return '<'+tag+' class="world-cross-quote"'+attributes+'>'
+    +'<span>'+esc(name)+'</span><strong>'+price+'</strong>'
+    +(meta?'':'<small>'+esc(stamp)+'</small>')
+    +'<b class="'+(!isYield&&stale?'market-stale':tone(move))+'">'+change+'</b>'
+    +(meta?'<small class="world-yield-meta" title="'+esc(meta.full)+'">'+esc(meta.short)+(stale?' · 沿用':'')+'</small>':'')+'</'+tag+'>';
+}
+
+function fxCrossRate(base, counter, readings) {
+  const leg = currency => {
+    if (currency === "USD") return {price:1,previous:1};
+    const reading = readings[fxLegs[currency]];
+    if (!fnum(reading?.price) || reading.price<=0 || !fnum(reading.time)) return null;
+    return currency === "EUR"
+      ? {...reading,price:1/reading.price,previous:reading.previous>0 ? 1/reading.previous : null}
+      : reading;
+  };
+  const from = leg(base), to = leg(counter);
+  if (!from || !to) return null;
+  if (fnum(from.time) && fnum(to.time) && Math.abs(from.time-to.time)>15*60000) return null;
+  const earliest = !fnum(to.time) || from.time<to.time ? from : to;
+  return {price:to.price/from.price,previous:from.previous>0&&to.previous>0 ? to.previous/from.previous : null,
+    time:earliest.time,timezone:earliest.timezone};
+}
+
+function renderCrossFx() {
+  const pairs = [[fxReference,"CNH"],["EUR","CNH"],["SGD","CNH"],["SGD",fxReference]];
+  const [reference,...crosses] = pairs.map(([base,counter])=>{
+    const name = fxNames[base]+"／"+fxNames[counter];
+    if (base === "USD") return crossQuote([fxLegs[counter],name]);
+    const key = base+counter;
+    const reading = fxCrossRate(base,counter,quotes);
+    if (reading) convertedFx.set(key,reading);
+    return crossQuote([null,name],convertedFx.get(key) ?? fxCrossRate(base,counter,snapshotQuotes));
+  });
+  by("world-fx-primary").innerHTML = crossQuote(["DX-Y.NYB","美元指数"])+reference;
+  by("world-fx-pairs").innerHTML = crosses.join("");
+  for (const button of fxReferenceButtons) button.setAttribute("aria-pressed",String(button.dataset.fxReference===fxReference));
 }
 
 async function refreshYields() {
@@ -413,11 +499,10 @@ async function refreshYields() {
     let updates=0;
     for (const symbol of treasurySymbols) {
       const reading=observations?.[symbol];
-      const latest=Array.isArray(reading?.rows)&&reading.rows.at(-1);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(latest?.[0]||"")||!fnum(latest[1])
-        ||latest[0]<(latestYield(symbol)?.observationDate||"")) continue;
+      const latest=dailyObservation(reading);
+      if (!latest || latest.date < (latestYield(symbol)?.date || "")) continue;
       yields[symbol]=reading;
-      if (!quoteIsStale(latestYield(symbol))) updates++;
+      if (!quoteIsStale({observationDate:latest.date})) updates++;
     }
     return updates;
   } catch {return 0;}
@@ -426,7 +511,7 @@ async function refreshYields() {
 function regionMarkup(id,label,rows) {
   if (!rows.length) return "";
   return '<section class="market-region"'+(id?' id="'+id+'"':'')+'><h3>'+esc(label)+'</h3>'
-    +'<div class="market-lines">'+rows.map(marketRow).join("")+'</div></section>';
+    +'<div class="market-lines">'+rows.map(row=>marketRow(row)).join("")+'</div></section>';
 }
 
 function holdingRegionsMarkup(holdings) {
@@ -457,9 +542,9 @@ function renderIndexRegions() {
 function renderWorld() {
   const holdings=heldRows();
   renderGlobe(holdings);
-  by("world-cross-quotes").innerHTML=crossGroups.map(([name,rows])=>
-    '<section><h3>'+esc(name)+'</h3>'+rows.map(crossQuote).join("")+'</section>').join("");
-  by("overview-indices").innerHTML=overviewIndices.map(marketRow).join("");
+  for (const [id,rows] of crossGroups) by(id).innerHTML=rows.map(row=>crossQuote(row)).join("");
+  renderCrossFx();
+  by("overview-indices").innerHTML=overviewIndices.map(row=>marketRow(row,true)).join("");
   renderIndexRegions();
   by("watch-rows").innerHTML=holdingRegionsMarkup(holdings.filter(matches))
     || '<p class="work-note">没有符合条件的股票持仓</p>';
@@ -498,6 +583,7 @@ async function refreshAdrReferences(holdings) {
 async function refreshWorld() {
   if (waiting) {refreshQueued=true;return;}
   if (!hasApi) {
+    renderGlobe(heldRows());
     by("world-status").textContent="当前显示随网页发布的行情快照。";
     return;
   }
@@ -533,6 +619,11 @@ async function refreshWorld() {
 
 by("ticker-filter").addEventListener("input",renderWorld);
 by("refresh").addEventListener("click",refreshWorldData);
+for (const button of fxReferenceButtons) button.addEventListener("click",()=>{
+  fxReference=button.dataset.fxReference;
+  localWrite(fxReferenceKey,fxReference);
+  renderCrossFx();
+});
 window.addEventListener("storage",event=>{
   if(event.key!==storageKeys.portfolio)return;
   portfolioRows=localRead(storageKeys.portfolio,{}).positions||[];

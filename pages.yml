@@ -1,0 +1,92 @@
+name: Update and deploy market dashboard
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Load regular-session closes and pick up later FRED publications.
+    - cron: '43 14,22 * * 1-5'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: market-dashboard-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore latest verified observations
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            dist/assets/market-data.json
+            dist/assets/initial-data.js
+          key: market-observations-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: market-observations-v1-
+      - name: Update market observations
+        continue-on-error: true
+        run: python3 scripts/update_market_data.py
+      - name: Retain observations for the next run
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            dist/assets/market-data.json
+            dist/assets/initial-data.js
+          key: market-observations-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Configure market API
+        env:
+          MARKET_API_BASE: ${{ vars.MARKET_API_BASE }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          base = os.environ.get("MARKET_API_BASE", "").strip()
+          parsed = urlsplit(base)
+          if base and (parsed.scheme != "https" or not parsed.hostname or parsed.query or parsed.fragment or parsed.username):
+              raise SystemExit("MARKET_API_BASE must be a public HTTPS base URL.")
+          if base:
+              Path("dist/assets/live-config.js").write_text(
+                  "window.MARKET_LIVE_CONFIG = " + json.dumps({"apiBase": base}) + ";\n",
+                  encoding="utf-8",
+              )
+          PY
+      - uses: actions/configure-pages@v5
+      - name: Add shared site visit counter
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          tag = '<script src="/assets/site-visits.js?v=1" defer></script>'
+          for page in Path("dist").rglob("*.html"):
+              html = page.read_text(encoding="utf-8")
+              if tag in html:
+                  continue
+              updated, matches = re.subn(
+                  r"</head\s*>", lambda match: f"    {tag}\n{match[0]}", html, count=1, flags=re.I
+              )
+              if matches:
+                  page.write_text(updated, encoding="utf-8")
+          PY
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

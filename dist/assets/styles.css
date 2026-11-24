@@ -147,7 +147,7 @@ p, h1, h2, dl, dd {margin:0}
 .cross-row strong {font-weight:600}
 .cross-row strong, .cross-row>span {text-align:right;font-variant-numeric:tabular-nums}
 .dashboard-footer {display:flex;flex-wrap:wrap;align-items:center;gap:.23rem .9rem;padding:0 .1rem}
-#sync-status {color:var(--warm);font-size:.73rem}
+#sync-status {color:var(--muted);font-size:.73rem}
 dialog {padding:0;width:min(94vw,640px);max-height:82dvh;border:1px solid var(--line);border-radius:10px;color:var(--ink);background:var(--page)}
 dialog::backdrop {background:#15213265}
 .dialog-header {display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.62rem .85rem;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--page)}
@@ -328,7 +328,9 @@ dialog::backdrop {background:#15213265}
 .metric-timing .data-age {font-size:.68rem}
 .cross-time {display:inline-flex;flex-wrap:wrap;align-items:baseline}
 .cross-time small {color:var(--muted)}
-.observation-fallback,.cross-time .observation-fallback {color:var(--warm);font-size:.75rem;font-weight:650;white-space:nowrap}
+.observation-fallback {color:var(--muted);font-size:.75rem;white-space:nowrap}
+.cross-observation .cross-name {display:block;text-align:left}
+.cross-observation-meta {grid-column:1/-1;color:var(--muted);text-align:left;font-weight:400;white-space:normal}
 #sync-status {border:1px solid var(--line);border-radius:7px;padding:.32rem .55rem}
 @media (max-width:480px) {
   .cross-name .cross-time {grid-column:1/-1;grid-row:2}

@@ -72,6 +72,7 @@ async function writePortfolio(next) {
   portfolio = next;
   demo = false;
   const saved = localWrite(storageKeys.portfolio,next);
+  recordNavHoldings(next.positions);
   persistenceWarning = saved || databaseVersion !== null ? "" : "浏览器未允许本地保存。可用「导出备份」保留修改。";
   if (saved) window.dispatchEvent(new Event(portfolioEvent));
 }
@@ -362,6 +363,7 @@ function draw() {
   by("public-portfolio").hidden = demo || !report.values.length;
   if (report.values.length) {
     showStats(report); renderAllocation(report,portfolio.base); showHoldings(report); showAttribution(report); showExposure(report); showSimulation(report,rates);
+    renderNavHistory(portfolio.base,demo);
   }
 }
 
@@ -607,6 +609,7 @@ by("base-currency").addEventListener("change",async event=>{
     persistenceWarning = error.message;
   }
   draw();
+  refreshNavHistory(portfolio,livePortfolio,demo);
 });
 by("sample-portfolio").addEventListener("click",()=>{
   portfolio = normalizePortfolio(sample);
@@ -624,6 +627,7 @@ by("live-portfolio").addEventListener("change",event=>{
   draw();
   loadRates();
   refreshPortfolioQuotes();
+  refreshNavHistory(portfolio,livePortfolio,demo,true);
 });
 const publicDialog = by("public-dialog");
 by("public-portfolio").addEventListener("click",()=>{
@@ -649,12 +653,21 @@ for (const [id,mode] of [["publish-portfolio","publish"],["unpublish-portfolio",
     } catch(error) {by("public-error").textContent=error.message;}
   });
 }
-const refreshLivePortfolio = ()=>{loadRates();refreshPortfolioQuotes();};
-by("refresh").addEventListener("click",refreshLivePortfolio);
+let navInitialized = false;
+const refreshLivePortfolio = (force = false)=>{
+  loadRates();
+  refreshPortfolioQuotes();
+  if (navInitialized) refreshNavHistory(portfolio,livePortfolio,demo,force);
+};
+by("refresh").addEventListener("click",()=>refreshLivePortfolio(true));
 drawOrders();
 draw();
 refreshLivePortfolio();
-openDatabase();
+openDatabase().finally(()=>{
+  if (!demo) recordNavHoldings(portfolio.positions);
+  navInitialized = true;
+  refreshNavHistory(portfolio,livePortfolio,demo);
+});
 publicSnapshot();
 setInterval(()=>{if(!document.hidden)refreshLivePortfolio();},60000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshLivePortfolio();});
