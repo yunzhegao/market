@@ -61,7 +61,7 @@
 dialog textarea {display:block;width:100%;margin-top:.35rem}
 .compact-button,.solid-button {border:1px solid var(--line);background:var(--page);border-radius:5px;padding:.34rem .55rem;white-space:nowrap}
 .compact-button:enabled:is(:hover,:focus-visible) {background:var(--subtle);color:var(--accent)}
-.solid-button {background:var(--accent);border-color:var(--accent);color:var(--page);font-weight:600}
+.solid-button {background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
 .solid-button:enabled:is(:hover,:focus-visible) {background:var(--accent-hover);border-color:var(--accent-hover)}
 .work-page select:enabled:is(:hover,:focus-visible),.editor-dialog select:enabled:is(:hover,:focus-visible) {border-color:var(--accent)}
 .empty-portfolio {padding:1.3rem;margin:.5rem 0}
@@ -156,8 +156,8 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .world-overview {
   display:grid;grid-template-columns:minmax(0,1fr) clamp(20rem,26vw,22rem);align-items:start;gap:.6rem;margin-bottom:.6rem;
 }
-.world-map-column {min-width:0;--globe-day-dot:#cfd7e1;--globe-night-dot:#414c5d;--globe-highlight-dot:#0086e0;--globe-terminator:#73839985}
-[data-theme="dark"] .world-map-column {--globe-day-dot:#8a99ad;--globe-night-dot:#3f4a59;--globe-highlight-dot:#6098d0;--globe-terminator:#8295ae92}
+.world-map-column {min-width:0;--globe-day-dot:#cfd7e1;--globe-night-dot:#414c5d;--globe-terminator:#73839985}
+[data-theme="dark"] .world-map-column {--globe-day-dot:#8a99ad;--globe-night-dot:#3f4a59;--globe-terminator:#8295ae92}
 .globe-legend {display:flex;align-items:center;flex-wrap:wrap;gap:.2rem .75rem;margin:.2rem 0 0 .35rem;color:var(--muted);font-size:.75rem}
 .globe-legend span {display:inline-flex;align-items:center;gap:.28rem;white-space:nowrap}
 .globe-legend i {width:.56rem;height:.56rem;border-radius:50%}
@@ -178,7 +178,7 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .globe-lighting {color:var(--globe-terminator)}
 .globe-land-day {fill:var(--globe-day-dot)}
 .globe-land-night {fill:var(--globe-night-dot)}
-.globe-land-highlight {fill:var(--globe-highlight-dot);fill-rule:evenodd}
+.globe-land-highlight {fill:var(--accent);fill-rule:evenodd}
 .globe-terminator {fill:none;stroke:url(#globe-terminator-fade);stroke-width:1;stroke-linecap:round;vector-effect:non-scaling-stroke}
 .globe-areas path {fill:transparent;fill-rule:evenodd}
 .globe-areas .globe-market-area {pointer-events:fill;cursor:pointer}
