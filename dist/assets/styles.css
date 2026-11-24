@@ -66,9 +66,14 @@ p, h1, h2, dl, dd {margin:0}
 .skip {position:fixed;z-index:10;top:-4rem;left:1rem;padding:.5rem;background:var(--page)}
 .skip:focus {top:.5rem}
 .site-header {border-bottom:1px solid var(--line)}
-.header-inner, .header-tools {display:flex;align-items:center;gap:.5rem}
-.header-inner {justify-content:space-between;min-height:42px}
-.header-inner h1 {font-size:1rem;font-weight:700;white-space:nowrap;letter-spacing:-.022em}
+.visually-hidden {position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.header-inner, .header-start, .header-tools {display:flex;align-items:center;gap:.5rem}
+.header-inner {justify-content:space-between;flex-wrap:wrap;min-height:42px}
+.header-start {gap:.85rem;min-width:0;max-width:100%}
+.site-name {font-size:1rem;font-weight:700;white-space:nowrap}
+.site-nav {display:flex;gap:.28rem;align-items:center;flex-wrap:wrap;min-width:0}
+.site-nav a {padding:.32rem .48rem;border-radius:5px;white-space:nowrap}
+.site-nav a[aria-current="page"] {background:var(--accent-wash);color:var(--accent);font-weight:600}
 .header-tools time {color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums;white-space:nowrap}
 .icon-button, .close-button {display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid var(--line);border-radius:7px;background:var(--page)}
 .icon-button:hover, .close-button:hover {background:var(--subtle);color:var(--accent)}
@@ -202,8 +207,10 @@ dialog::backdrop {background:#15213265}
   .cross-row {padding:.15rem 0}
 }
 @media (max-width:420px) {
-  .header-inner {min-height:38px}
-  .header-inner h1 {font-size:.9rem}
+  .header-inner {min-height:38px;padding-block:.18rem;row-gap:.16rem}
+  .header-start {gap:.38rem}
+  .site-name {font-size:.9rem}
+  .site-nav a {padding:.24rem .33rem;font-size:.77rem}
   .header-tools {gap:.24rem}
   .header-tools time {font-size:.65rem}
   .icon-button {width:30px;height:30px}
@@ -340,4 +347,8 @@ dialog::backdrop {background:#15213265}
 @media (max-width:480px) {
   .cross-name .cross-time {grid-column:1/-1;grid-row:2}
   .cross-name .cross-time small {grid-column:auto;grid-row:auto}
+}
+@media(max-width:560px) {
+  .header-inner {padding-block:.23rem;row-gap:.24rem}
+  .header-start {min-width:min(100%,280px)}
 }

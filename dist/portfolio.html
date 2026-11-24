@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="多账户盈亏归因、ETF 穿透与换仓模拟">
+  <meta name="theme-color" content="#ffffff" id="theme-color">
+  <title>个人投资组合分析 · 市场观察</title>
+  <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./assets/styles.css">
+  <link rel="stylesheet" href="./assets/workspace.css">
+  <script defer src="./assets/live-config.js"></script>
+  <script defer src="./assets/world-snapshot.js"></script>
+  <script defer src="./assets/portfolio-model.js"></script>
+  <script defer src="./assets/workspace.js"></script>
+  <script defer src="./assets/portfolio.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到内容</a>
+  <header class="site-header">
+    <div class="header-inner shell">
+      <div class="header-start">
+        <span class="site-name">市场观察</span>
+        <nav class="site-nav" aria-label="网站导航">
+          <a href="./index.html">观察框架</a>
+          <a href="./world.html">环球市场</a>
+          <a href="./portfolio.html" aria-current="page">组合分析</a>
+        </nav>
+      </div>
+      <div class="header-tools">
+        <time id="sync-time" hidden></time>
+        <button class="icon-button" id="refresh" type="button" aria-label="刷新数据" title="刷新数据">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.2 5.9M20 5v6h-6"/></svg>
+        </button>
+        <button class="icon-button" id="theme" type="button" aria-label="夜间模式" aria-pressed="false" title="切换日夜模式">
+          <svg class="moon" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 14a9 9 0 0 1-11-11 9.1 9.1 0 1 0 11 11Z"/></svg>
+          <svg class="sun" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <main id="main" class="shell work-page">
+    <div class="page-line">
+      <h1>个人投资组合分析</h1>
+      <div class="page-tools">
+        <label for="base-currency">显示币种</label><select id="base-currency"></select>
+        <button type="button" class="compact-button" id="edit-rates">汇率</button>
+        <button type="button" class="solid-button" id="edit-portfolio">编辑持仓</button>
+      </div>
+    </div>
+    <p id="portfolio-status" class="work-status" role="status"></p>
+    <section id="portfolio-empty" class="panel empty-portfolio" hidden>
+      <h2>添加你的第一个账户</h2>
+      <p>在编辑器里填持仓和现金，也可以导入已准备好的持仓文件。</p>
+      <div class="page-tools"><button type="button" class="solid-button" id="import-first">导入持仓</button><button type="button" class="compact-button" id="sample-portfolio">载入演示数据</button></div>
+    </section>
+    <div id="portfolio-results" hidden>
+      <section id="portfolio-kpis" class="portfolio-kpis" aria-label="组合概况"></section>
+      <div class="portfolio-layout">
+        <div class="work-stack">
+          <section class="panel work-panel" aria-labelledby="holdings-title">
+            <div class="section-line"><h2 id="holdings-title">合并持仓与今日贡献</h2><div class="page-tools"><label for="holdings-sort" class="visually-hidden">持仓排序</label><select id="holdings-sort"><option value="value">按市值</option><option value="impact">按盈亏贡献</option></select></div></div>
+            <div class="work-table-wrap"><table class="work-table" id="holdings-table"></table></div>
+            <div id="account-total" class="account-totals"></div>
+          </section>
+          <section class="panel work-panel" aria-labelledby="exposure-title">
+            <div class="section-line"><h2 id="exposure-title">穿透与重叠敞口</h2><button type="button" id="edit-exposure" class="text-button">编辑 ETF 成分权重</button></div>
+            <div class="work-table-wrap"><table class="work-table" id="lookthrough-table"></table></div>
+            <p class="work-note" id="lookthrough-note"></p>
+          </section>
+        </div>
+        <div class="work-stack">
+          <section class="panel work-panel" aria-labelledby="returns-title">
+            <div class="section-line"><h2 id="returns-title">今天涨亏在哪</h2><span id="pnl-label"></span></div>
+            <div class="impact-grid" id="portfolio-attribution"></div>
+          </section>
+          <section class="panel work-panel" aria-labelledby="simulation-title">
+            <div class="section-line"><h2 id="simulation-title">换仓模拟器</h2><button type="button" class="text-button" id="add-trade">添加操作</button></div>
+            <div id="trade-list"></div>
+            <p id="simulation-error" class="work-error" role="status"></p>
+            <div class="work-table-wrap"><table class="work-table" id="simulation-table"></table></div>
+            <details class="simulation-overlap" id="simulation-overlap" hidden>
+              <summary>各标的重叠敞口变化</summary>
+              <div class="work-table-wrap"><table class="work-table" id="simulation-exposure"></table></div>
+            </details>
+            <p class="work-note">按指定账户和币种结算。费用以成交币种计。现金和可出售的现金替代资产分开显示。</p>
+          </section>
+          <section class="panel work-panel" aria-labelledby="stress-title">
+            <div class="section-line"><h2 id="stress-title">压力情景</h2><button type="button" class="text-button" id="edit-stress">调整冲击</button></div>
+            <div class="work-table-wrap"><table class="work-table" id="stress-table"></table></div>
+            <p class="work-note">冲击由你设定。外币冲击相对当前显示币种。</p>
+          </section>
+        </div>
+      </div>
+    </div>
+    <details class="work-method"><summary>组合计算口径</summary>
+      <p>市值按最新输入价和当期汇率折算。今日价格贡献＝数量 × 价格变动 × 当期汇率。汇率贡献＝数量 × 前收 × 汇率变动。两项相加等于按当前持仓数量计算的市值变动。交易流水、股息、转账和税费未纳入日归因。</p>
+      <p>未实现盈亏按录入的本币平均成本和当期汇率估算。ETF 只穿透已录入成分，直接和间接权重使用组合净值作分母。手动汇率可覆盖自动报价，缺价格或汇率的记录标记为缺项。</p>
+    </details>
+  </main>
+  <input type="file" id="import-portfolio" accept=".json,application/json" hidden>
+  <dialog id="portfolio-dialog" class="editor-dialog" aria-labelledby="editor-title">
+    <div class="dialog-header"><h2 id="editor-title"></h2><form method="dialog"><button class="close-button" aria-label="关闭">×</button></form></div>
+    <form class="dialog-body" id="editor-form">
+      <div id="editor-content"></div>
+      <p class="work-error" id="editor-error" role="alert"></p>
+      <div class="editor-actions"><button id="editor-add" type="button" class="compact-button">添加一行</button><div class="page-tools"><button id="editor-import" type="button" class="compact-button">导入</button><button id="editor-export" type="button" class="compact-button">导出备份</button><button type="submit" class="solid-button">保存</button></div></div>
+    </form>
+  </dialog>
+</body>
+</html>

@@ -15,7 +15,7 @@ async function handle(request) {
   if (pathname === "/api/market") return market.fetch(request);
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", {status: 405});
   const name = pathname === "/" ? "index.html" : pathname.slice(1);
-  if (name !== "index.html" && !/^assets\/[\w.-]+$/.test(name)) return new Response("Not found", {status: 404});
+  if (!["index.html", "world.html", "portfolio.html"].includes(name) && !/^assets\/[\w.-]+$/.test(name)) return new Response("Not found", {status: 404});
   const type = types[name.split(".").at(-1)];
   if (!type) return new Response("Not found", {status: 404});
   try {
@@ -38,4 +38,4 @@ createServer(async (incoming, outgoing) => {
     outgoing.writeHead(500, {"Content-Type": "text/plain; charset=utf-8"});
     outgoing.end("Market request failed");
   }
-}).listen(port, "127.0.0.1", () => console.log("美股市场观察 " + base));
+}).listen(port, "127.0.0.1", () => console.log("市场观察 " + base));

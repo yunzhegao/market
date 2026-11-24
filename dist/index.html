@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="SPYM 收盘走势与美股五项市场信号。">
   <meta name="theme-color" content="#ffffff" id="theme-color">
-  <title>美股市场观察</title>
+  <title>回调观察框架 · 市场观察</title>
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/styles.css">
   <script defer src="./assets/live-config.js"></script>
@@ -18,7 +18,14 @@
   <a class="skip" href="#main">跳到行情</a>
   <header class="site-header">
     <div class="header-inner shell">
-      <h1>美股市场观察</h1>
+      <div class="header-start">
+        <span class="site-name">市场观察</span>
+        <nav class="site-nav" aria-label="网站导航">
+          <a href="./index.html" aria-current="page">观察框架</a>
+          <a href="./world.html">环球市场</a>
+          <a href="./portfolio.html">组合分析</a>
+        </nav>
+      </div>
       <div class="header-tools">
         <time id="sync-time" hidden></time>
         <button class="icon-button" id="refresh" type="button" aria-label="刷新数据" title="刷新数据">
@@ -31,7 +38,8 @@
       </div>
     </div>
   </header>
-  <main class="shell dashboard" id="main">
+  <main class="shell dashboard" id="main" aria-labelledby="page-title">
+    <h1 id="page-title" class="visually-hidden">回调观察框架</h1>
     <p id="sync-status" role="status" hidden></p>
     <div class="market-grid">
     <section class="quote-card panel" aria-labelledby="quote-title">
@@ -127,7 +135,7 @@
       </article>
     </div>
     <footer class="dashboard-footer">
-      <button class="text-button" type="button" data-dialog="framework">观察框架</button>
+      <button class="text-button" type="button" data-dialog="framework">回调情景</button>
       <button class="text-button" type="button" data-dialog="method">数据口径与来源</button>
     </footer>
   </main>

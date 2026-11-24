@@ -3,7 +3,7 @@ const market = {
   SPYM: "SPYM", VIX: "^VIX", SPY: "SPY", RSP: "RSP", IWM: "IWM", QQQ: "QQQ",
   HYG: "HYG", JNK: "JNK", KRE: "KRE", DXY: "DX-Y.NYB", GOLD: "GC=F", WTI: "CL=F",
 };
-const fred = {OAS: "BAMLH0A0HYM2", DGS10: "DGS10"};
+const fred = {OAS: "BAMLH0A0HYM2", DGS2: "DGS2", DGS5: "DGS5", DGS10: "DGS10", DGS30: "DGS30"};
 const eastDate = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
 });
@@ -76,8 +76,12 @@ function yahooReading(result, key, interval, detailed) {
 }
 
 async function yahooChart(key, hostname, interval, range) {
+  return yahooSymbolChart(market[key], hostname, interval, range);
+}
+
+async function yahooSymbolChart(symbol, hostname, interval, range) {
   const query = new URLSearchParams({interval, range, includePrePost: "false"});
-  const url = "https://" + hostname + "/v8/finance/chart/" + encodeURIComponent(market[key]) + "?" + query;
+  const url = "https://" + hostname + "/v8/finance/chart/" + encodeURIComponent(symbol) + "?" + query;
   const data = await upstream(url);
   const result = data.chart?.result?.[0];
   if (!result) throw new Error("missing chart");
@@ -388,6 +392,81 @@ async function getDetail(key) {
   return quote || history ? {quote, history} : null;
 }
 
+const worldSymbol = /^\^?[A-Z0-9][A-Z0-9.=^\-]{0,18}$/;
+const conversionCurrencies = ["EUR", "GBP", "JPY", "SGD", "HKD", "CNY", "AUD", "CAD", "CHF", "KRW", "TWD", "CNH"];
+const worldCache = new Map();
+
+async function worldReading(symbol) {
+  const cached = worldCache.get(symbol);
+  if (cached && Date.now() - cached.received < 55000) return cached.quote;
+  for (const host of yahooHosts) {
+    try {
+      const chart = await yahooSymbolChart(symbol, host, "5m", "1d");
+      const meta = chart.meta ?? {};
+      const rows = yahooRows(chart);
+      const lastBar = last(rows);
+      const tradeTime = meta.regularMarketTime * 1000;
+      const useMeta = finite(meta.regularMarketPrice) && finite(tradeTime) && (!lastBar || tradeTime >= lastBar[0]);
+      const current = useMeta ? meta.regularMarketPrice : lastBar?.[1];
+      const time = useMeta ? tradeTime : lastBar?.[0];
+      if (!finite(current) || !finite(time)) continue;
+      const step = Math.max(1, Math.ceil(rows.length / 32));
+      const spark = rows.filter((_, i) => i % step === 0).map(row => row[1]);
+      if (last(spark) !== current) spark.push(current);
+      const regular = meta.currentTradingPeriod?.regular;
+      const quote = {
+        price: current, previous: changeBase(meta, current), time, spark, source: "yahoo",
+        timezone: meta.exchangeTimezoneName, currency: meta.currency,
+        sessionStart: finite(regular?.start) ? regular.start * 1000 : null,
+        sessionEnd: finite(regular?.end) ? regular.end * 1000 : null,
+      };
+      if (worldCache.size >= 256) worldCache.delete(worldCache.keys().next().value);
+      worldCache.set(symbol, {received: Date.now(), quote});
+      return quote;
+    } catch {
+      // Try the other quote host.
+    }
+  }
+  return null;
+}
+
+async function latestFx() {
+  const records = await gather(conversionCurrencies, currency => worldReading("USD" + currency + "=X"));
+  const rates = {USD: {now: 1, prev: 1, time: Date.now()}};
+  for (const [currency, quote] of Object.entries(records)) {
+    if (!quote || !(quote.price > 0)) continue;
+    rates[currency] = {now: quote.price, prev: quote.previous > 0 ? quote.previous : null, time: quote.time};
+  }
+  return rates;
+}
+
+const treasuryTerms = {DGS2:"2 Yr", DGS5:"5 Yr", DGS10:"10 Yr", DGS30:"30 Yr"};
+
+async function worldTreasury() {
+  const year = dayOf(Date.now()).slice(0,4);
+  try {
+    const url = "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/"
+      + year + "/all?type=daily_treasury_yield_curve&field_tdr_date_value=" + year + "&_format=csv";
+    const csv = await upstream(url,"csv",{},9000);
+    const [head,...lines] = csv.trim().split(/\r?\n/);
+    const columns = head.replaceAll('"',"").split(",");
+    const series = Object.fromEntries(Object.entries(treasuryTerms).map(([key,term])=>{
+      const column = columns.indexOf(term);
+      const rows = lines.flatMap(line=>{
+        const row = line.split(",");
+        const date = csvDate(row[0]);
+        const value = row[column] ? Number(row[column]) : NaN;
+        return date && finite(value) ? [[date,value]] : [];
+      }).sort((a,b)=>a[0].localeCompare(b[0])).slice(-35);
+      return [key,{source:"treasury",rows}];
+    }));
+    if (Object.values(series).every(item=>item.rows.length>=2)) return series;
+  } catch {
+    // FRED republishes the Treasury constant-maturity series.
+  }
+  return gather(Object.keys(treasuryTerms),getFred);
+}
+
 export default {
   async fetch(request) {
     const url = new URL(request.url);
@@ -395,6 +474,22 @@ export default {
     const headers = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store", "Content-Type": "application/json"};
     if (request.method !== "GET") return Response.json({error: "method"}, {status: 405, headers});
     const scope = url.searchParams.get("scope");
+    if (scope === "world") {
+      const symbols = [...new Set((url.searchParams.get("symbols") || "").split(","))];
+      if (symbols.length > 8 || !symbols.every(symbol => worldSymbol.test(symbol))) {
+        return Response.json({error: "symbols"}, {status: 400, headers});
+      }
+      const quotes = await gather(symbols, worldReading);
+      return Response.json({quotes}, {status: Object.values(quotes).some(Boolean) ? 200 : 503, headers});
+    }
+    if (scope === "world-yields") {
+      const observations = await worldTreasury();
+      return Response.json({observations}, {status: Object.values(observations).some(Boolean) ? 200 : 503, headers});
+    }
+    if (scope === "fx") {
+      const rates = await latestFx();
+      return Response.json({rates}, {status: Object.keys(rates).length > 1 ? 200 : 503, headers});
+    }
     if (scope === "context") {
       const context = await gather(Object.keys(marketContextSources), key => marketContextSources[key]());
       return Response.json({context}, {status: Object.values(context).some(Boolean) ? 200 : 503, headers});
