@@ -1,12 +1,14 @@
 "use strict";
 
 const worldRegions = [
-  ["north","北美",["US","CA","MX"]],
+  ["north","北美",["US","CA"]],
   ["europe","欧洲",["GB","DE","FR","CH","ES","IT","NL","BE","SE","NO","DK","FI","AT","IE","PL","PT","GR","IS"]],
   ["east","日韩与台湾",["JP","KR","TW"]],
   ["china","中国内地与香港",["CN","HK","MO"]],
-  ["latin","拉美",["BR","AR","CL","PE","CO"]],
+  ["latin","拉美",["MX","BR","AR","CL","PE","CO"]],
   ["south","南亚与东南亚",["SG","IN","ID","SA","MY","TH","VN","PH"]],
+  ["africa","非洲",["ZA","EG"]],
+  ["russia","俄罗斯",["RU"]],
   ["oceania","大洋洲",["AU","NZ"]],
 ];
 
@@ -33,6 +35,9 @@ const venues = [
   ["AR","布宜诺斯艾利斯",-58.37,-34.60,[["^MERV","阿根廷 MERVAL","阿根廷 MERVAL"]]],
   ["ID","雅加达",106.81,-6.22,[["^JKSE","印尼雅加达综合","印尼综合"]]],
   ["SA","利雅得",46.68,24.69,[["^TASI.SR","沙特 Tadawul"]]],
+  ["ZA","约翰内斯堡",28.05,-26.10,[["^J203.JO","南非 FTSE/JSE 全股","南非全股"]]],
+  ["EG","开罗",31.24,30.05,[["^CASE30","埃及 EGX 30"]]],
+  ["RU","莫斯科",37.61,55.76,[["IMOEX","俄罗斯 MOEX"]]],
   ["NZ","惠灵顿",174.78,-41.29,[["^NZ50","新西兰 NZX 50","NZX 50"]]],
 ];
 
@@ -41,20 +46,20 @@ const listingCountries = {
   ST:"SE",OL:"NO",CO:"DK",HE:"FI",VI:"AT",IR:"IE",WA:"PL",LS:"PT",AT:"GR",IS:"TR",
   T:"JP",KS:"KR",KQ:"KR",TW:"TW",TWO:"TW",HK:"HK",SS:"CN",SZ:"CN",BJ:"CN",
   SA:"BR",BA:"AR",SN:"CL",LM:"PE",CL:"CO",SI:"SG",JK:"ID",KL:"MY",BK:"TH",VN:"VN",NS:"IN",BO:"IN",
-  SR:"SA",PS:"PH",AX:"AU",NZ:"NZ",TA:"IL",JO:"ZA",
+  SR:"SA",PS:"PH",AX:"AU",NZ:"NZ",TA:"IL",JO:"ZA",ME:"RU",CA:"EG",
 };
 const countriesByZone = {
   "America/New_York":"US","America/Chicago":"US","America/Los_Angeles":"US","America/Toronto":"CA","America/Vancouver":"CA",
   "Europe/London":"GB","Europe/Berlin":"DE","Europe/Paris":"FR","Europe/Zurich":"CH","Europe/Madrid":"ES",
   "Asia/Singapore":"SG","Asia/Hong_Kong":"HK","Asia/Shanghai":"CN","Asia/Tokyo":"JP","Asia/Seoul":"KR","Asia/Taipei":"TW",
   "Asia/Kolkata":"IN","Asia/Kuala_Lumpur":"MY","Asia/Bangkok":"TH","Asia/Jakarta":"ID","Asia/Manila":"PH",
-  "Australia/Sydney":"AU","Pacific/Auckland":"NZ",
+  "Africa/Cairo":"EG","Africa/Johannesburg":"ZA","Europe/Moscow":"RU","Australia/Sydney":"AU","Pacific/Auckland":"NZ",
 };
 const portfolioOnly = new Set(["USD","SGD","HKD","EUR","JPY","CNY","CNH","BOXX","SGOV","BIL","SHV","USFR","TFLO","TLT","IEF","SHY","BND","AGG","GLDM","GLD","IAU","SLV","DXY","DX-Y.NYB","BTC-USD","ETH-USD"]);
 const nonEquityBuckets = new Set(["cash","reserve","gold","duration"]);
 const indexRows = venues.flatMap(([country,city,,,indices])=>indices.map(([symbol,name,label])=>({symbol,name,label:label??name,country,city})));
 const overviewSymbols = [
-  "^GSPC","^IXIC","^FTSE","^GDAXI","000001.SS","^HSI","^N225","^KS11","^STI","^NSEI","^AXJO","^BVSP",
+  "^GSPC","^IXIC","^FTSE","^GDAXI","000001.SS","^HSI","^N225","^KS11","^STI","^NSEI","^AXJO","^BVSP","^J203.JO","^CASE30","IMOEX",
 ];
 const overviewIndices = overviewSymbols.map(symbol=>indexRows.find(row=>row.symbol===symbol));
 const regionNames = new Intl.DisplayNames(["zh-CN"],{type:"region"});
@@ -98,7 +103,9 @@ function moveOf(reading) {
   return Math.abs(value)<.005 ? 0 : value;
 }
 
-function sourceUrl(symbol) {return "https://finance.yahoo.com/quote/"+encodeURIComponent(symbol)+"/";}
+function sourceUrl(symbol) {
+  if (symbol==="IMOEX") return quotes[symbol]?.source==="investing" ? "https://www.investing.com/indices/mcx-historical-data" : "https://www.moex.com/en/index/IMOEX";
+  return "https://finance.yahoo.com/quote/"+encodeURIComponent(symbol)+"/";}
 
 function displaySymbol(symbol) {return symbol.replaceAll("^","");}
 
@@ -109,6 +116,8 @@ const globePopup = by("globe-popup");
 let activeMarket = null;
 let marketPinned = false;
 let hideMarketTimer;
+let pointerPosition;
+let dismissedAt;
 
 function globePoint(lon,lat) {
   return [500+lon*2.76*(.77+.23*Math.cos(lat*Math.PI/180)),218-2.39*lat];
@@ -221,12 +230,17 @@ function closeMarketPanel(restoreFocus=false) {
   globePopup.hidden=true;
 }
 
+function dismissMarketPanel(restoreFocus, event) {
+  dismissedAt = event?.type==="click" && event.detail ? [event.clientX,event.clientY] : pointerPosition;
+  closeMarketPanel(restoreFocus);
+}
+
 function openMarketPanel(target,event,pinned=false) {
   clearTimeout(hideMarketTimer);
   const {country,city}=target.dataset;
   const button=target.matches("button")?target:null;
   if (pinned&&marketPinned&&activeMarket?.button===button&&activeMarket?.country===country) {
-    closeMarketPanel();
+    dismissMarketPanel(false,event);
     return;
   }
   if (activeMarket?.country===country&&activeMarket.button===button&&!pinned) return;
@@ -250,8 +264,8 @@ function deferMarketClose() {
   },190);
 }
 
-globe.addEventListener("pointerover",event=>{
-  if (event.pointerType==="touch"||marketPinned) return;
+function hoverMarket(event) {
+  if (event.pointerType==="touch"||marketPinned||dismissedAt) return;
   if (globePopup.contains(event.target)) {clearTimeout(hideMarketTimer);return;}
   const target=event.target.closest("[data-country]");
   if (target) {
@@ -261,6 +275,14 @@ globe.addEventListener("pointerover",event=>{
     }
     openMarketPanel(target,event);
   } else deferMarketClose();
+}
+globe.addEventListener("pointerover",hoverMarket);
+globe.addEventListener("pointermove",event=>{
+  if (event.pointerType==="touch") return;
+  pointerPosition=[event.clientX,event.clientY];
+  if (!dismissedAt||Math.hypot(event.clientX-dismissedAt[0],event.clientY-dismissedAt[1])<8) return;
+  dismissedAt=null;
+  hoverMarket(event);
 });
 globe.addEventListener("pointerleave",deferMarketClose);
 globe.addEventListener("focusin",event=>{
@@ -273,13 +295,14 @@ globe.addEventListener("focusout",event=>{
 globe.addEventListener("click",event=>{
   const target=event.target.closest("[data-country]");
   if (target) {
+    dismissedAt=null;
     openMarketPanel(target,event,true);
     if (event.detail===0&&!globePopup.hidden) by("globe-popup-close").focus();
   }
 });
-by("globe-popup-close").addEventListener("click",()=>closeMarketPanel(true));
+by("globe-popup-close").addEventListener("click",event=>dismissMarketPanel(true,event));
 document.addEventListener("pointerdown",event=>{if (!globe.contains(event.target)) closeMarketPanel();});
-document.addEventListener("keydown",event=>{if (event.key==="Escape"&&activeMarket) closeMarketPanel(globePopup.contains(document.activeElement));});
+document.addEventListener("keydown",event=>{if (event.key==="Escape"&&activeMarket) dismissMarketPanel(globePopup.contains(document.activeElement),event);});
 new ResizeObserver(()=>{layoutGlobeLabels();positionMarketPanel();}).observe(globe);
 document.fonts.ready.then(layoutGlobeLabels);
 
@@ -313,16 +336,17 @@ function matches(row) {
   return !needle || (row.symbol+" "+row.name).toUpperCase().includes(needle);
 }
 
-function marketRow({symbol,name,held,localPrice,isAdr}) {
+function marketRow({symbol,name,held,localPrice,isAdr,adrMarkets=[]}) {
   const reading=quotes[symbol];
   const move=moveOf(reading);
-  const time=reading?timeAt(reading.time,reading.timezone):fnum(localPrice)?"手动价":"暂无报价";
+  const time=reading?(reading.observationDate?.slice(5).replace("-","/")??timeAt(reading.time,reading.timezone)):fnum(localPrice)?"手动价":"暂无报价";
   const stale=fnum(reading?.time)&&Date.now()-reading.time>fourDays;
   const source=reading?quoteStamp(reading):time;
   const status=reading?(stale?" · 报价超过四天":!fresh.has(symbol)?" · 快照":""):"";
-  return '<a class="market-line" href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer" title="'+esc(name+" "+displaySymbol(symbol)+" · "+source+status)+'">'
+  const markets=adrMarkets.length?" · 原股 "+adrMarkets.map(market=>countryName(market.country)).join(" / "):"";
+  return '<a class="market-line" href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer" title="'+esc(name+" "+displaySymbol(symbol)+" · "+source+status+markets)+'">'
     +'<div class="market-name"><span>'+esc(name)+'</span><small>'+esc(displaySymbol(symbol))+(isAdr?' · ADR':held?' · 持仓':'')
-    +(sessionNames[reading?.session]?' · '+sessionNames[reading.session]:reading?.delayMinutes?' · 延迟':'')+'</small></div>'
+    +(sessionNames[reading?.session]?' · '+sessionNames[reading.session]:reading?.delayMinutes?' · 延迟':'')+esc(markets)+'</small></div>'
     +marketSpark(reading?.spark,tone(move))
     +'<div class="market-number"><strong>'+fmt(reading?.price??localPrice)+'</strong></div>'
     +'<div class="market-number"><strong class="'+tone(move)+'">'+pctText(move)+'</strong><small class="'+(stale?'market-stale':'')+'">'
@@ -335,6 +359,23 @@ function regionMarkup(id,label,rows) {
     +'<div class="market-lines">'+rows.map(marketRow).join("")+'</div></section>';
 }
 
+function holdingRegionsMarkup(holdings) {
+  const regions=new Map(worldRegions.map(([id,name])=>[id,{name,rows:[]}]));
+  const regionByCountry=new Map(worldRegions.flatMap(([id,,countries])=>countries.map(country=>[country,id])));
+  for (const row of holdings) {
+    const isAdr=row.isAdr || (row.kind==="stock"&&row.country==="US"&&/\b(?:ADR|ADS)\b|美国存托/i.test(row.name));
+    // The reference service returns the depositary's ordinary listing first, followed by cross-listings.
+    const country=isAdr?row.adrMarkets[0]?.country:row.country;
+    const id=country?(regionByCountry.get(country)??country):(isAdr?"adr-pending":"other");
+    if (!regions.has(id)) {
+      const name=country?countryName(country):isAdr?"原股上市地待核对":"其他上市地";
+      regions.set(id,{name,rows:[]});
+    }
+    regions.get(id).rows.push({...row,isAdr});
+  }
+  return [...regions].map(([id,{name,rows}])=>regionMarkup("held-region-"+id,name,rows)).join("");
+}
+
 function renderWorld() {
   const holdings=heldRows();
   renderGlobe(holdings);
@@ -342,11 +383,7 @@ function renderWorld() {
   by("regions").innerHTML=worldRegions.map(([id,name,countries])=>
     regionMarkup("world-region-"+id,name,indexRows.filter(row=>countries.includes(row.country)&&matches(row)))).join("")
     || '<p class="work-note">没有符合条件的指数</p>';
-  const grouped=new Set(worldRegions.flatMap(([, ,countries])=>countries));
-  const other=holdings.filter(row=>!grouped.has(row.country)&&matches(row));
-  by("watch-rows").innerHTML=(worldRegions.map(([id,name,countries])=>
-    regionMarkup("held-region-"+id,name,holdings.filter(row=>countries.includes(row.country)&&matches(row)))).join("")
-    +regionMarkup("held-region-other","其他上市地",other))
+  by("watch-rows").innerHTML=holdingRegionsMarkup(holdings.filter(matches))
     || '<p class="work-note">没有符合条件的股票持仓</p>';
   by("watch-help").hidden=holdings.length>0||!!by("ticker-filter").value;
 }

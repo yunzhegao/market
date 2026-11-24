@@ -282,6 +282,7 @@ function draw() {
   const report = analyze(portfolioRowsNow(),portfolio,rates);
   by("portfolio-empty").hidden = Boolean(report.values.length);
   by("portfolio-results").hidden = !report.values.length;
+  by("exit-demo").hidden = !demo;
   const status = [
     demo ? "演示数据" : databaseVersion !== null ? "持仓已接入数据库" : "本机持仓",
     livePortfolio && !demo && report.values.some(row=>row.kind!=="cash")
@@ -379,10 +380,12 @@ const defaultRow = {
 function edit(mode) {
   const rows = mode==="rates" ? currencyList.filter(x=>x!=="USD").map(currency=>({currency,...portfolio.rates[currency]}))
     : structuredClone(portfolio[mode]);
+  if (mode==="positions" && !rows.length) rows.push(defaultRow.positions());
   editor = {mode, rows, date:portfolio.date};
   by("editor-title").textContent = modes[mode].title;
   by("editor-error").textContent = "";
   by("editor-add").hidden = mode==="rates";
+  by("editor-example").hidden = mode!=="positions";
   by("editor-import").hidden = mode!=="positions";
   by("editor-export").hidden = mode!=="positions";
   renderEditor();
@@ -522,11 +525,15 @@ async function loadRates() {
   }
 }
 
-for (const [button,mode] of [["edit-portfolio","positions"],["edit-exposure","weights"],["edit-rates","rates"],["edit-stress","scenarios"]]) {
+for (const [button,mode] of [["edit-portfolio","positions"],["enter-first","positions"],["edit-exposure","weights"],["edit-rates","rates"],["edit-stress","scenarios"]]) {
   by(button).addEventListener("click",()=>edit(mode));
 }
 for (const id of ["editor-import","import-first"]) by(id).addEventListener("click",()=>by("import-portfolio").click());
 by("editor-export").addEventListener("click",exportPortfolio);
+for (const id of ["download-example","editor-example"]) {
+  by(id).addEventListener("click",()=>downloadJson("Market-Portfolio-Example.json",{base:sample.base,positions:sample.positions}));
+}
+by("exit-demo").addEventListener("click",()=>location.reload());
 by("base-currency").innerHTML = currencyOptions(portfolio.base);
 by("base-currency").addEventListener("change",async event=>{
   const next = {...portfolio,base:event.target.value};

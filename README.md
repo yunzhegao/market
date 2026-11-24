@@ -3,10 +3,30 @@
 ## 页面
 
 - `framework.html` — 回调观察框架和美股风险指标。旧首页 `index.html` 会跳转。
-- `world.html` — 地图和分区表展示环球指数与股票持仓。地图按城市经纬度定位指数。悬停市场区域或选中圆点可查看当地指数和组合分析中的同一上市地持仓。陆地和交互边界使用 [Natural Earth](https://www.naturalearthdata.com/downloads/110m-cultural-vectors/) 数据。行情接口为 `scope=world`（每批 8 个代码）。`scope=adr` 按持仓代码查询 Citi 存托凭证目录，并用 OpenFIGI 的原股 ISIN 匹配上市市场；原市场详情分别列出原股和持有 ADR 的报价。自建行情 Worker 需要部署新版后才会提供这项匹配。
+- `world.html` — 地图和分区表展示环球指数与股票持仓。地图按城市经纬度定位指数。悬停市场区域或选中圆点可查看当地指数和组合分析中的同一上市地持仓。陆地和交互边界使用 [Natural Earth](https://www.naturalearthdata.com/downloads/110m-cultural-vectors/) 数据。行情接口为 `scope=world`（每批 8 个代码）。南非和埃及指数使用 Yahoo Finance；俄罗斯 MOEX 使用交易所日收盘，接口暂不可用时显示带日期的收盘快照。`scope=adr` 按持仓代码查询 Citi 存托凭证目录，并用 OpenFIGI 的原股 ISIN 匹配上市市场；原市场详情分别列出原股和持有 ADR 的报价。自建行情 Worker 需要部署新版后才会提供这项匹配。
 - `portfolio.html` — 手动维护多账户持仓及现金，按选定币种计算市值、价格与汇率贡献、集中度、ETF 重叠和情景损失。双层环形图内圈是分类，外圈是具体持仓，账面现金与现金替代合并在现金类。空白价格日期或当日日期会访问 `scope=fx` 取公开市场汇率。历史价格日期默认使用 Frankfurter 的对应日期参考值。手动汇率优先。
 
-在已配置数据库的管理站点，添加、导入和编辑持仓会保存到 D1。无数据库连接的静态副本使用本地浏览器存储。自动行情只发证券代码，合并持仓的数量、现金和成本保存在管理数据库。手动价格用于关掉自动行情或缺少同币种报价时。Yahoo Finance 的美股盘前、盘中、盘后和 SGX 报价均带时间，SGX 和港股公开报价分别延迟约 20 和 15 分钟。
+## 用自己的持仓
+
+朋友可以在自己的浏览器打开 [GitHub Pages 组合分析](https://yunzhegao.github.io/market/portfolio.html)。静态版将持仓保存在当前浏览器。解压源码包后，也可按下文启动本地服务，打开 `/portfolio.html`。
+
+1. 点「手动录入」或「编辑持仓」，填写账户名称、证券代码、类型、币种和数量，再保存。现金选「现金」，数量填现金金额。自动行情拿不到时，可以手填现价和前收。填写成本可计算未实现盈亏。
+2. 想批量录入时，点「下载示例 JSON」，将虚构的账户和持仓改成自己的，再点「导入 JSON」。导入会替换当前组合，有旧数据时可先用「导出备份」保存一份。
+3. 点击「载入演示数据」可体验计算与换仓模拟。「退出演示」会回到上次保存的组合。
+
+下面是可以导入的最小示例，含一笔 ETF 和一笔现金。
+
+```json
+{
+  "base": "USD",
+  "positions": [
+    {"account": "示例账户", "symbol": "SPY", "kind": "etf", "currency": "USD", "quantity": 2},
+    {"account": "示例账户", "kind": "cash", "currency": "USD", "quantity": 500}
+  ]
+}
+```
+
+管理站连接数据库时，编辑和导入会保存到 D1。访客用各自的浏览器打开 GitHub Pages，即可独立录入并保存。自动行情只向行情接口发送证券代码。Yahoo Finance 的美股盘前、盘中、盘后和 SGX 报价均带时间，SGX 和港股公开报价分别延迟约 20 和 15 分钟。
 
 「展示设置」预览证券代码、名称、类别和权重，可保存展示内容或停止展示。GitHub Pages 是静态托管，要在公开站展示该快照时，从设置导出 `portfolio-public.json`，放到 `dist/` 后重新发布。更新持仓不自动改变已公开的快照。请单独保管导出的完整持仓备份。模拟交易按账户和成交币种核对可用现金，允许先卖后买的净额模拟。ETF 间接敞口仅计已录入的基金成分。
 
@@ -46,4 +66,4 @@ GitHub Actions 在每周一至周五 14:43、22:43 UTC 更新日线资料，也�
 
 公开行情以各来源提供的报价、时间和更新周期为准。日线脚本仅依赖 Python 标准库，可运行 `python3 scripts/update_market_data.py --check-only` 检查日线来源。
 
-英数字体使用 Inter，中文使用 Noto Sans CJK SC 的页面子集。授权见 `dist/assets/INTER-LICENSE.txt` 和 `dist/assets/FONT-LICENSE.txt`。
+全站使用 Noto Sans SC 可变字体。常用简繁字、标点和英数字随站点提供，其余字形按需从同一字体的官方 Google Fonts 资源加载。授权见 `dist/assets/FONT-LICENSE.txt`。

@@ -29,6 +29,7 @@
         </nav>
       </div>
       <div class="header-tools">
+        <a class="site-home" href="https://yunzhegao.github.io/cn.html">个人主页</a>
         <time id="sync-time" hidden></time>
         <button class="icon-button" id="refresh" type="button" aria-label="刷新数据" title="刷新数据">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.2 5.9M20 5v6h-6"/></svg>
@@ -48,6 +49,7 @@
         <label class="quote-switch"><input type="checkbox" id="live-portfolio" checked>自动行情</label>
         <button type="button" class="compact-button" id="edit-rates">汇率</button>
         <button type="button" class="compact-button" id="public-portfolio" hidden>展示设置</button>
+        <button type="button" class="compact-button" id="exit-demo" hidden>退出演示</button>
         <button type="button" class="solid-button" id="edit-portfolio">编辑持仓</button>
       </div>
     </div>
@@ -57,9 +59,14 @@
       <div class="work-table-wrap"><table class="work-table" id="public-holdings"></table></div>
     </section>
     <section id="portfolio-empty" class="panel empty-portfolio" hidden>
-      <h2>添加你的第一个账户</h2>
-      <p>在编辑器里填持仓和现金，也可以导入已准备好的持仓文件。</p>
-      <div class="page-tools"><button type="button" class="solid-button" id="import-first">导入持仓</button><button type="button" class="compact-button" id="sample-portfolio">载入演示数据</button></div>
+      <h2>录入你的持仓</h2>
+      <p>按账户填写证券和现金，或导入已有的持仓 JSON。</p>
+      <div class="page-tools">
+        <button type="button" class="solid-button" id="enter-first">手动录入</button>
+        <button type="button" class="compact-button" id="import-first">导入 JSON</button>
+        <button type="button" class="compact-button" id="sample-portfolio">载入演示数据</button>
+        <button type="button" class="text-button" id="download-example">下载示例 JSON</button>
+      </div>
     </section>
     <div id="portfolio-results" hidden>
       <section id="portfolio-kpis" class="portfolio-kpis" aria-label="组合概况"></section>
@@ -137,7 +144,7 @@
     <form class="dialog-body" id="editor-form">
       <div id="editor-content"></div>
       <p class="work-error" id="editor-error" role="alert"></p>
-      <div class="editor-actions"><button id="editor-add" type="button" class="compact-button">添加一行</button><div class="page-tools"><button id="editor-import" type="button" class="compact-button">导入</button><button id="editor-export" type="button" class="compact-button">导出备份</button><button type="submit" class="solid-button">保存</button></div></div>
+      <div class="editor-actions"><button id="editor-add" type="button" class="compact-button">添加一行</button><div class="page-tools"><button id="editor-example" type="button" class="text-button">下载示例 JSON</button><button id="editor-import" type="button" class="compact-button">导入</button><button id="editor-export" type="button" class="compact-button">导出备份</button><button type="submit" class="solid-button">保存</button></div></div>
     </form>
   </dialog>
 </body>

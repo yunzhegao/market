@@ -63,6 +63,7 @@ async function latestMarketQuotes(symbols) {
 
 const sessionNames = {pre:"盘前",regular:"盘中/收盘",post:"盘后"};
 function quoteStamp(quote) {
+  if (quote.observationDate) return quote.observationDate + " · 当地收盘";
   const zone = quote.timezone || "UTC";
   const zoneName = {"America/New_York":"美东","Asia/Singapore":"新加坡","Asia/Hong_Kong":"香港"}[zone] || zone;
   const time = timeAt(quote.time,zone) + " " + zoneName;
@@ -73,7 +74,7 @@ function markRequest(time = Date.now()) {
   const node = by("sync-time");
   node.hidden = false;
   node.dateTime = new Date(time).toISOString();
-  node.textContent = "更新 " + timeAt(time) + " 北京";
+  node.textContent = "更新 " + timeAt(time) + " 北京 · " + timeAt(time,"America/New_York") + " 美东";
 }
 
 function initTheme() {

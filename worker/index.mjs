@@ -547,9 +547,30 @@ async function adrListings(symbols) {
   }));
 }
 
+async function moexReading() {
+  const from = new Date(Date.now()-28*86400000).toISOString().slice(0,10);
+  const url = "https://iss.moex.com/iss/history/engines/stock/markets/index/boards/SNDX/securities/IMOEX.json?"
+    + new URLSearchParams({from,"iss.meta":"off","iss.only":"history","history.columns":"TRADEDATE,CLOSE"});
+  const {history} = await upstream(url);
+  const dateColumn = history.columns.indexOf("TRADEDATE"), closeColumn = history.columns.indexOf("CLOSE");
+  const rows = history.data.filter(row=>/^\d{4}-\d{2}-\d{2}$/.test(row[dateColumn])&&finite(row[closeColumn]))
+    .sort((a,b)=>a[dateColumn].localeCompare(b[dateColumn]));
+  if (rows.length<2) return null;
+  const observationDate = last(rows)[dateColumn];
+  return {price:last(rows)[closeColumn],previous:rows.at(-2)[closeColumn],observationDate,
+    time:Date.parse(observationDate+"T00:00:00+03:00"),spark:rows.map(row=>row[closeColumn]),
+    source:"moex",timezone:"Europe/Moscow",currency:"RUB"};
+}
+
 async function worldReading(symbol) {
   const cached = worldCache.get(symbol);
-  if (cached && Date.now() - cached.received < 55000) return cached.quote;
+  const lifetime = symbol==="IMOEX" ? 300000 : 55000;
+  if (cached && Date.now() - cached.received < lifetime) return cached.quote;
+  if (symbol==="IMOEX") {
+    const quote = await moexReading().catch(()=>null);
+    worldCache.set(symbol,{received:Date.now(),quote});
+    return quote;
+  }
   for (const host of yahooHosts) {
     try {
       const chart = await yahooSymbolChart(symbol, host, "5m", "1d", !symbol.startsWith("^") && !symbol.includes("="));

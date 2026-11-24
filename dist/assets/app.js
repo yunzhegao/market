@@ -16,10 +16,13 @@ const sourceUrls = {
 };
 const yahooSymbols = {DXY: "DX-Y.NYB", GOLD: "GC=F", WTI: "CL=F", VIX: "^VIX"};
 const required = ["SPYM", "VIX", "FEAR", "RSP", "SPY", "IWM", "OAS", "HYG", "JNK", "KRE", "DGS10", "DXY", "GOLD", "WTI"];
-const beijingTime = new Intl.DateTimeFormat("zh-CN", {
-  timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit",
+const headerTime = timeZone => new Intl.DateTimeFormat("zh-CN", {
+  timeZone, month: "2-digit", day: "2-digit",
   hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
+
+const beijingTime = headerTime("Asia/Shanghai");
+const easternHeaderTime = headerTime("America/New_York");
 
 const eastTime = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
@@ -745,8 +748,8 @@ function renderStatus() {
   time.hidden = !checked || !finite(Date.parse(checked));
   if (!time.hidden) {
     time.dateTime = checked;
-    time.textContent = (state.checkedAt ? "请求 " : filePage && !canFetchMarket ? "离线快照 " : "快照 ") + beijingTime.format(new Date(checked)) + " 北京";
-    time.title = state.checkedAt ? "本次请求时间（北京时间）" : "随网页发布的快照（北京时间）";
+    time.textContent = (state.checkedAt ? "请求 " : filePage && !canFetchMarket ? "离线快照 " : "快照 ") + beijingTime.format(new Date(checked)) + " 北京 · " + easternHeaderTime.format(new Date(checked)) + " 美东";
+    time.title = state.checkedAt ? "本次请求时间（北京 / 美东）" : "随网页发布的快照（北京 / 美东）";
   }
   const status = byId("sync-status");
   const failures = failuresLabel();
