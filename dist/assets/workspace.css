@@ -63,11 +63,12 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .solid-button:hover {filter:brightness(.91)}
 .empty-portfolio {padding:1.3rem;margin:.5rem 0}
 .empty-portfolio p {margin:.45rem 0 .7rem;color:var(--muted)}
-.portfolio-kpis {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) repeat(2,minmax(0,.8fr)) minmax(0,1.6fr);gap:.6rem;margin-bottom:.6rem}
+.portfolio-kpis {display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,2.2fr) repeat(2,minmax(0,.78fr)) minmax(0,1.5fr);gap:.6rem;margin-bottom:.6rem}
 .portfolio-kpi {padding:.52rem .68rem;min-width:0}
 .portfolio-kpi span,.portfolio-kpi small,.portfolio-cash-values dt {display:block;color:var(--muted);font-size:.75rem}
 .portfolio-kpi strong {display:block;margin:.14rem 0;font-size:clamp(.88rem,1.65vw,1.3rem);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.portfolio-quote-times {display:grid;gap:.12rem;margin:.32rem 0 0;padding:.28rem 0 0;border-top:1px solid var(--line);list-style:none;color:var(--muted);font-size:.75rem;overflow-wrap:anywhere}
+.portfolio-market-kpi:has(.portfolio-quote-times) {display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.55fr);align-items:start;gap:.65rem}
+.portfolio-quote-times {display:grid;gap:.12rem;min-width:0;margin:0;padding:0 0 0 .65rem;border-left:1px solid var(--line);list-style:none;color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .portfolio-cash-values {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem}
 .portfolio-cash-values div + div {border-left:1px solid var(--line);padding-left:.45rem}
 .exposure-heading {display:flex;align-items:center;flex-wrap:wrap;gap:.2rem .45rem}
@@ -106,15 +107,16 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .editor-table td {min-width:5.4rem}
 .editor-table td:last-child {min-width:2.2rem}
 @media(max-width:1060px) {.portfolio-layout {grid-template-columns:1fr 1fr}.region-grid {column-gap:.55rem}}
-@media(max-width:780px) {
-  .world-layout,.portfolio-layout {grid-template-columns:1fr}
+@media(max-width:1080px) {
   .portfolio-kpis {grid-template-columns:repeat(3,minmax(0,1fr))}
   .portfolio-market-kpi {grid-column:span 2}
 }
+@media(max-width:780px) {
+  .world-layout,.portfolio-layout {grid-template-columns:1fr}
+}
 @media(max-width:560px) {
   .portfolio-kpis {grid-template-columns:repeat(2,minmax(0,1fr))}
-  .portfolio-market-kpi {grid-column:auto}
-  .portfolio-cash-kpi {grid-column:1 / -1}
+  .portfolio-kpis>.portfolio-kpi:first-child,.portfolio-market-kpi,.portfolio-cash-kpi {grid-column:1 / -1}
 }
 @media(max-width:440px) {
   .work-panel {padding:.44rem .5rem}

@@ -227,8 +227,8 @@ function showStats(report) {
   const cash = report.cashAssets;
   by("portfolio-kpis").innerHTML = [
     amount("组合市值 · "+portfolio.base,report.nav,"已计价 "+report.validCount+"/"+report.values.length+" 项"),
-    '<div class="panel portfolio-kpi portfolio-market-kpi"><span>最新行情变动</span><strong class="'+tone(report.daily)+'">'+plus(report.daily)
-      +'</strong><small>'+(fnum(ret)?pctText(ret)+" · ":"")+"已归因 "+report.accountedCount+" 项</small>"
+    '<div class="panel portfolio-kpi portfolio-market-kpi"><div><span>最新行情变动</span><strong class="'+tone(report.daily)+'">'+plus(report.daily)
+      +'</strong><small>'+(fnum(ret)?pctText(ret)+" · ":"")+"已归因 "+report.accountedCount+" 项</small></div>"
       +(timing?'<ul class="portfolio-quote-times" aria-label="各市场与汇率截至时间">'+timing+'</ul>':"")+'</div>',
     amount("汇率影响",report.fxImpact,"基于已完成归因的持仓",true),
     amount("未实现盈亏",report.unrealized,"有成本 "+report.unrealizedCount+" 项",true),
