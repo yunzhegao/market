@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Keep bundled ETF snapshots
+        run: cp dist/assets/etf-holdings.json "$RUNNER_TEMP/etf-holdings-seed.json"
       - name: Restore latest verified observations
         uses: actions/cache/restore@v4
         with:
@@ -37,7 +39,7 @@ jobs:
         run: python3 scripts/update_market_data.py
       - name: Update ETF holdings disclosures
         continue-on-error: true
-        run: python3 -B scripts/update_etf_holdings.py
+        run: python3 -B scripts/update_etf_holdings.py --seed "$RUNNER_TEMP/etf-holdings-seed.json"
       - name: Update ETF sector disclosures
         continue-on-error: true
         run: |
