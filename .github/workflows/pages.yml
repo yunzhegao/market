@@ -28,17 +28,22 @@ jobs:
           path: |
             dist/assets/market-data.json
             dist/assets/initial-data.js
+            dist/assets/etf-holdings.json
           key: market-observations-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: market-observations-v1-
       - name: Update market observations
         continue-on-error: true
         run: python3 scripts/update_market_data.py
+      - name: Update ETF holdings disclosures
+        continue-on-error: true
+        run: python3 scripts/update_etf_holdings.py
       - name: Retain observations for the next run
         uses: actions/cache/save@v4
         with:
           path: |
             dist/assets/market-data.json
             dist/assets/initial-data.js
+            dist/assets/etf-holdings.json
           key: market-observations-v1-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Configure market API
         env:
