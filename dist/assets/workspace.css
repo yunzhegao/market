@@ -79,7 +79,7 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .portfolio-cash-detail {display:flex;justify-content:space-between;align-items:baseline;gap:.35rem}
 .portfolio-cash-detail dd {color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
 .exposure-heading {display:flex;align-items:center;flex-wrap:wrap;gap:.2rem .45rem}
-.coverage-label {color:var(--accent);background:var(--accent-wash);border-radius:4px;padding:.12rem .35rem;font-size:.75rem;white-space:nowrap}
+.coverage-label {color:var(--accent);font-size:.75rem;white-space:nowrap}
 .nav-history {margin-bottom:.6rem}
 .nav-history-heading,.nav-history-heading .chart-controls {flex-wrap:wrap}
 .nav-history-meta {margin:.22rem 0 .34rem}

@@ -3,6 +3,7 @@
 const legacyNavHoldingsKey = "market-portfolio-valuation-holdings-v1";
 const navPointsKey = "market-portfolio-valuation-points-v1";
 const navDayMs = 86400000;
+const navWeekMs = 7*navDayMs;
 const navHistoryDays = 367;
 const navArchiveLimit = 1400000;
 const navRangeMonths = {month:1,quarter:3,half:6,year:12};
@@ -296,6 +297,11 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
   }
 }
 
+function navWeekStart(date) {
+  const weekday = new Date(Date.parse(date)).getUTCDay();
+  return navCutoff(date)-(weekday+6)%7*navDayMs;
+}
+
 function navPlotRows(rows, mode, prior) {
   if (mode!=="week") {
     const point = row=>[navCutoff(row.date),row.value,null,null,null,row];
@@ -311,19 +317,21 @@ function navPlotRows(rows, mode, prior) {
   }
   const weeks = [];
   for (const row of rows) {
-    const at = Date.parse(row.date);
-    const monday = navDate(at-(new Date(at).getUTCDay()+6)%7*navDayMs);
+    const monday = navWeekStart(row.date);
     let week = weeks.at(-1);
-    if (week?.monday!==monday || week.estimated!==row.estimated) {
-      week = {monday,first:row.date,estimated:row.estimated,rows:[]};
+    if (week?.monday!==monday) {
+      week = {monday,rows:[]};
       weeks.push(week);
     }
     week.rows.push(row);
   }
-  return weeks.map(({first,estimated,rows:group})=>{
+  return weeks.map(({monday,rows:group})=>{
     const last = group.at(-1);
     const values = group.map(row=>row.value);
-    return [navCutoff(last.date),last.value,values[0],Math.max(...values),Math.min(...values),{date:last.date,first,estimated}];
+    const estimated = group.some(row=>row.estimated);
+    const mixed = estimated && group.some(row=>!row.estimated);
+    return [monday+navWeekMs/2,last.value,values[0],Math.max(...values),Math.min(...values),
+      {date:last.date,first:group[0].date,estimated,mixed}];
   });
 }
 
@@ -340,22 +348,35 @@ function showNavPoint() {
   plotPoint(navView,by("nav-history-readout"),fmt);
 }
 
+function navWeekAxis(from, to, dateLabel) {
+  const start = navWeekStart(from), end = navWeekStart(to)+navWeekMs;
+  const weeks = (end-start)/navWeekMs;
+  return {timeDomain:[start,end],timeLabel:at=>dateLabel(at-navWeekMs/2),timeTicks:limit=>{
+    const count = Math.min(limit,weeks);
+    return Array.from({length:count},(_,i)=>{
+      const week = count===1 ? 0 : Math.round(i*(weeks-1)/(count-1));
+      return start+(week+.5)*navWeekMs;
+    });
+  }};
+}
+
 function drawNavPlot(rows, from, to, base) {
   const {mode} = navView;
   const candle = mode!=="line", weekly = mode==="week";
   const target = by("nav-history-chart");
   const dateLabel = at => navDate(at).slice(5).replace("-","/");
+  const timeAxis = weekly ? navWeekAxis(from,to,dateLabel) : {timeDomain:[navCutoff(from),navCutoff(to)],timeLabel:dateLabel};
   const previousDay = mode==="day" ? navDay(portfolio.navHistory,navDate(navCutoff(from)-navDayMs)) : null;
   const prior = previousDay ? navSavedPoints(base,[previousDay])[0] : null;
   target.hidden = false;
   navView.plot = drawMarketPlot(target,navPlotRows(rows,mode,prior),{
-    candle,timeDomain:[navCutoff(from),navCutoff(to)],timeLabel:dateLabel,candleSlot:(weekly?7:1)*navDayMs,
+    ...timeAxis,candle,candleSlot:weekly?navWeekMs:navDayMs,
     axisLabel:row=>dateLabel(row[0]),axisFormat:value=>navAxis.format(value),axisWidth:62,
     estimated:row=>row[5].estimated,breakLine:navPointBreak,quietCursor:true,
     pointLabel:row=>{
       const info = row[5];
       const period = weekly && info.first!==info.date ? info.first+" – "+info.date : info.date;
-      return period+(info.estimated?" · 回算":"");
+      return period+(info.mixed?" · 部分回算":info.estimated?" · 回算":"");
     },
     comparison:(row,previous)=>candle ? row[2] : previous && !navPointBreak(previous,row) ? previous[1] : null,
     formatDelta:navDelta,
@@ -404,7 +425,7 @@ function renderNavHistory(base, isDemo) {
   by("nav-history-data").hidden = !last;
   const {mode} = navView;
   const method = mode==="day" ? "日 K 的开收分别取前一日和当日 06:00 净值，高低取这两个值的范围。浅色标记回算。"
-    : mode==="week" ? "周 K 取各周每日估值的首值、最高值、最低值和末值。浅色标记回算。"
+    : mode==="week" ? "周 K 按自然周等宽排列，取该周已有估值的首值、最高值、最低值和末值。浅色标记含回算的周。"
     : "虚线标记回算。缺少行情或汇率的日期留空。";
   by("nav-history-method").textContent = method+" 净值含出入金。";
   if (!last) {

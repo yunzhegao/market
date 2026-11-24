@@ -15,7 +15,7 @@ function priceScale(values, top, bottom) {
 const hasOHLC = row => row.slice(2, 5).length === 3 && row.slice(2, 5).every(Number.isFinite);
 
 function drawMarketPlot(target, rows, {candle = false, base, history = rows, pointLabel = row => String(row[0]), axisLabel = pointLabel,
-  sessionDay, sessionLabel, axisFormat = String, axisWidth = 38, timeDomain, timeLabel, candleSlot,
+  sessionDay, sessionLabel, axisFormat = String, axisWidth = 38, timeDomain, timeLabel, timeTicks, candleSlot,
   estimated = () => false, breakLine = () => false, quietCursor = false, comparison, formatDelta} = {}) {
   const points = candle ? rows.filter(hasOHLC) : rows;
   if (!points.length) {
@@ -54,10 +54,8 @@ function drawMarketPlot(target, rows, {candle = false, base, history = rows, poi
   const tickPositions = sessions
     ? starts.map((start, i) => ({index: Math.floor((start + (starts[i + 1] ?? points.length) - 1) / 2), label: sessionLabel(sessionDays[start])}))
     : timeDomain && timeSpan > 0
-      ? Array.from({length:slots},(_,i)=>{
-        const at=startTime+i*timeSpan/(slots-1);
-        return {position:timeX(at),label:timeLabel(at)};
-      })
+      ? (timeTicks?.(slots) ?? Array.from({length:slots},(_,i)=>startTime+i*timeSpan/(slots-1)))
+        .map(at=>({position:timeX(at),label:timeLabel(at)}))
       : Array.from({length: count}, (_, i) => {
       const index = count === 1 ? 0 : Math.round(i * (points.length - 1) / (count - 1));
       return {index, label: axisLabel(points[index])};

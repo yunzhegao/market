@@ -12,7 +12,6 @@
   --accent: #0071e3;
   --accent-hover: #0058b0;
   --on-accent: #fff;
-  --accent-wash: color-mix(in srgb,var(--accent) 14%,transparent);
   --up: #166748;
   --down: #aa303c;
   --warm: #84510d;
