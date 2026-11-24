@@ -642,7 +642,8 @@ async function latestFx() {
 }
 
 const dayMs = 86400000;
-const valuationBarMs = 15 * 60000;
+const valuationMaxAge = 4 * dayMs;
+const valuationFxCurrency = symbol => /^USD([A-Z]{3})=X$/.exec(symbol)?.[1];
 
 function valuationDate(cutoff) {
   return new Date(cutoff + 8 * 3600000).toISOString().slice(0,10);
@@ -659,26 +660,92 @@ function valuationCutoffs(from, to, now = Date.now()) {
   return Array.from({length:(last-first)/dayMs+1}, (_,i)=>first+i*dayMs);
 }
 
+function completedValuationBars(chart, cutoffs, barMs) {
+  const bars = yahooRows(chart).filter(row=>row[1]>0).sort((a,b)=>a[0]-b[0]);
+  let index = 0;
+  if (barMs) return cutoffs.flatMap(cutoff=>{
+    while (index < bars.length && bars[index][0]+barMs <= cutoff) index++;
+    const bar = bars[index-1];
+    return bar && bar[0]+barMs >= cutoff-valuationMaxAge
+      ? [[valuationDate(cutoff),bar[1],barMs===3600000?"hourly":null]] : [];
+  });
+
+  // Daily bars are dated at the trading session. Use the exchange's local close
+  // to decide when a close could have been known, including across DST changes.
+  const {exchangeTimezoneName:timeZone,currentTradingPeriod} = chart.meta;
+  if (!timeZone) return [];
+  const formatter = new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit",
+    hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"});
+  const local = at => {
+    const {year,month,day,hour,minute,second} = Object.fromEntries(formatter.formatToParts(at).map(({type,value})=>[type,value]));
+    return year+"-"+month+"-"+day+"T"+hour+":"+minute+":"+second;
+  };
+  const asOf = value => value > 0 ? local(value*1000) : "";
+  const session = currentTradingPeriod?.regular;
+  const open = asOf(session?.start), close = asOf(session?.end);
+  const closeTime = open && open.slice(0,10)===close.slice(0,10) && close > open ? close.slice(10) : null;
+  const daily = bars.map(([at,value])=>{
+    const date = local(at).slice(0,10);
+    const eligible = closeTime ? date+closeTime : new Date(Date.parse(date)+dayMs).toISOString().slice(0,19);
+    return {at,value,eligible};
+  });
+  return cutoffs.flatMap(cutoff=>{
+    const at = local(cutoff);
+    while (index < daily.length && daily[index].at<=cutoff && daily[index].eligible<=at) index++;
+    const bar = daily[index-1];
+    return bar && bar.at >= cutoff-valuationMaxAge ? [[valuationDate(cutoff),bar.value,"close"]] : [];
+  });
+}
+
 async function valuationPrices(symbol, cutoffs) {
-  const maxAge = 4 * dayMs;
-  const bounds = {period1:(cutoffs[0]-maxAge)/1000, period2:cutoffs.at(-1)/1000};
-  for (const host of yahooHosts) {
+  const bounds = {period1:(cutoffs[0]-valuationMaxAge)/1000, period2:cutoffs.at(-1)/1000};
+  const fx = valuationFxCurrency(symbol);
+  const [main,alternate] = yahooHosts;
+  const attempts = [[symbol,main,"15m",900000],[symbol,alternate,"15m",900000],
+    [symbol,main,"60m",3600000],[symbol,alternate,"60m",3600000]];
+  if (fx) attempts.push([fx+"=X",main,"60m",3600000]);
+  else attempts.push([symbol,main,"1d",0],[symbol,alternate,"1d",0]);
+  const rows = new Map();
+  let currency;
+  for (const [ticker,host,interval,barMs] of attempts) {
     try {
-      const chart = await yahooSymbolChart(symbol,host,"15m",bounds);
-      const bars = yahooRows(chart).filter(row=>row[1]>0).sort((a,b)=>a[0]-b[0]);
-      if (!bars.length || !chart.meta?.currency) continue;
-      let index = 0;
-      const rows = cutoffs.flatMap(cutoff=>{
-        while (index < bars.length && bars[index][0]+valuationBarMs <= cutoff) index++;
-        const bar = bars[index-1];
-        return bar && bar[0]+valuationBarMs >= cutoff-maxAge ? [[valuationDate(cutoff),bar[1]]] : [];
-      });
-      if (rows.length) return {currency:chart.meta.currency,rows};
-    } catch {
-      // Try the second chart host when one feed cannot provide historical bars.
-    }
+      const chart = await yahooSymbolChart(ticker,host,interval,bounds);
+      const code = chart.meta?.currency;
+      if (!code || (fx && code!==fx) || (currency && code!==currency)) continue;
+      const pending = cutoffs.filter(at=>!rows.has(valuationDate(at)));
+      for (const row of completedValuationBars(chart,pending,barMs)) {
+        rows.set(row[0],row);
+        currency = code;
+      }
+      if (rows.size === cutoffs.length) break;
+    } catch {}
   }
-  return null;
+  return rows.size ? {currency,rows:[...rows.values()].sort((a,b)=>a[0].localeCompare(b[0]))} : null;
+}
+
+async function completeValuationFx(prices, cutoffs) {
+  const targets = Object.entries(prices).flatMap(([symbol,quote])=>{
+    const currency = valuationFxCurrency(symbol);
+    return conversionCurrencies.includes(currency) && !["CNH","TWD"].includes(currency) && (quote?.rows.length ?? 0)<cutoffs.length
+      ? [{symbol,currency,rows:new Map(quote?.rows.map(row=>[row[0],row]))}] : [];
+  });
+  if (!targets.length) return;
+  const utcDay = at => new Date(at).toISOString().slice(0,10);
+  const from = utcDay(cutoffs[0]-valuationMaxAge), to = utcDay(cutoffs.at(-1));
+  const params = new URLSearchParams({base:"USD",symbols:targets.map(row=>row.currency).join(",")});
+  const {rates} = await upstream("https://api.frankfurter.dev/v1/"+from+".."+to+"?"+params);
+  const published = Object.entries(rates ?? {}).map(([date,values])=>({at:Date.parse(date+"T19:00:00Z"),values}))
+    .filter(row=>finite(row.at)).sort((a,b)=>a.at-b.at);
+  for (const {symbol,currency,rows} of targets) {
+    for (const cutoff of cutoffs) {
+      const day = valuationDate(cutoff);
+      if (rows.has(day)) continue;
+      const latest = published.findLast(row=>row.at<=cutoff && row.at>=cutoff-valuationMaxAge
+        && finite(row.values?.[currency]) && row.values[currency]>0);
+      if (latest) rows.set(day,[day,latest.values[currency],"fx-reference"]);
+    }
+    if (rows.size) prices[symbol] = {currency,rows:[...rows.values()].sort((a,b)=>a[0].localeCompare(b[0]))};
+  }
 }
 
 const treasuryTerms = {DGS2:"2 Yr", DGS5:"5 Yr", DGS10:"10 Yr", DGS30:"30 Yr"};
@@ -817,7 +884,8 @@ export default {
         return Response.json({error:"valuation"},{status:400,headers});
       }
       const prices = await gather(symbols,symbol=>valuationPrices(symbol,cutoffs));
-      return Response.json({prices},{status:Object.values(prices).some(Boolean)?200:503,headers});
+      await completeValuationFx(prices,cutoffs).catch(()=>{});
+      return Response.json({prices},{headers});
     }
     if (scope === "context") {
       const context = await gather(Object.keys(marketContextSources), key => marketContextSources[key]());

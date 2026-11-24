@@ -12,6 +12,7 @@ let navStorageError = false;
 const navCutoff = date => Date.parse(date + "T06:00:00+08:00");
 const navDate = at => new Date(at + 8 * 3600000).toISOString().slice(0,10);
 const navFxSymbol = currency => "USD" + currency + "=X";
+const navPriceSources = {hourly:"小时线",close:"日收盘价","fx-reference":"日度参考汇率"};
 
 function latestNavCutoff(now) {
   const ready = now - 30*60000;
@@ -109,23 +110,34 @@ function navPricesNeeded(days, base) {
   return [...symbols];
 }
 
-function navPoint(date, holdings, base, prices) {
+function navPoint(date, holdings, base, prices, missing = new Set()) {
+  const unit = {price:1};
   const rate = currency => {
-    if (currency === "USD") return 1;
+    if (currency === "USD") return unit;
     const quote = prices.get(navFxSymbol(currency));
     return quote?.currency === currency ? quote.byDate.get(date) : null;
   };
+  const sources = new Set();
   let total = 0;
+  let incomplete = false;
   for (const row of holdings) {
     const quote = prices.get(row.symbol);
-    const price = row.kind === "cash" ? 1 : quote?.currency === row.currency ? quote.byDate.get(date)
-      : row.currency === "GBP" && ["GBp","GBX"].includes(quote?.currency) ? quote.byDate.get(date)/100 : null;
-    const currencyRate = row.currency === base ? 1 : rate(row.currency);
-    const baseRate = row.currency === base ? 1 : rate(base);
-    if (!(price > 0 && currencyRate > 0 && baseRate > 0)) return null;
-    total += row.quantity * price * baseRate / currencyRate;
+    const pence = row.currency === "GBP" && ["GBp","GBX"].includes(quote?.currency);
+    const matchingCurrency = quote?.currency === row.currency || pence;
+    const price = row.kind === "cash" ? unit : matchingCurrency ? quote.byDate.get(date) : null;
+    const currencyRate = row.currency === base ? unit : rate(row.currency);
+    const baseRate = row.currency === base ? unit : rate(base);
+    if (!price) missing.add(row.symbol);
+    if (!currencyRate) missing.add("USD/"+row.currency);
+    if (!baseRate) missing.add("USD/"+base);
+    if (!price || !currencyRate || !baseRate) {
+      incomplete = true;
+      continue;
+    }
+    for (const reading of [price,currencyRate,baseRate]) if (reading.source) sources.add(reading.source);
+    total += row.quantity * price.price * baseRate.price / currencyRate.price / (pence ? 100 : 1);
   }
-  return fnum(total) ? {date,value:total} : null;
+  return !incomplete && fnum(total) ? {date,value:total,sources:[...sources]} : null;
 }
 
 function navDays(history, now) {
@@ -169,20 +181,30 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
   renderNavHistory(base,isDemo);
   try {
     const prices = new Map();
-    for (let i=0;i<symbols.length;i+=8) {
-      const batch = symbols.slice(i,i+8);
-      try {
-        const data = await requestMarket("valuation",{symbols:batch.join(","),from:days[0].date,to:days.at(-1).date});
-        for (const symbol of batch) {
-          const quote = data.prices?.[symbol];
-          if (Array.isArray(quote?.rows)) prices.set(symbol,{currency:quote.currency,byDate:new Map(quote.rows)});
+    const failures = [];
+    const batchSize = 4;
+    for (let i=0;i<symbols.length;i+=3*batchSize) {
+      const batches = [i,i+batchSize,i+2*batchSize].map(start=>symbols.slice(start,start+batchSize)).filter(batch=>batch.length);
+      const results = await Promise.allSettled(batches.map(batch=>requestMarket("valuation",{
+        symbols:batch.join(","),from:days[0].date,to:days.at(-1).date,
+      },45000)));
+      for (const result of results) {
+        if (result.status === "rejected") {
+          failures.push(result.reason);
+          continue;
         }
-      } catch {
-        // A missing symbol leaves its affected days open for a later retry.
+        for (const [symbol,quote] of Object.entries(result.value.prices ?? {})) {
+          if (!Array.isArray(quote?.rows)) continue;
+          const byDate = new Map(quote.rows.filter(row=>Array.isArray(row)&&validNavDate(row[0])&&fnum(row[1])&&row[1]>0)
+            .map(([date,price,source])=>[date,{price,source:Object.hasOwn(navPriceSources,source)?source:null}]));
+          if (byDate.size) prices.set(symbol,{currency:quote.currency,byDate});
+        }
       }
+      if (failures.some(error=>error?.code==="scope" || error?.status===404)) break;
     }
+    const missing = new Set();
     const added = days.flatMap(({date,holdings,basis})=>{
-      const point = navPoint(date,holdings,base,prices);
+      const point = navPoint(date,holdings,base,prices,missing);
       return point ? [{...point,basis}] : [];
     });
     if (added.length) {
@@ -192,8 +214,14 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
       book[base] = [...merged.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-navDisplayDays);
       navStorageError = !localWrite(navPointsKey,book);
     }
-    const missing = days.length-added.length;
-    navMessage = missing ? missing + " 天缺少历史报价或汇率，待补齐。" : "";
+    const incomplete = days.length-added.length;
+    const unavailable = failures.some(error=>error?.code==="scope" || error?.status===404);
+    const rejectedDates = failures.some(error=>error?.code==="valuation" && error?.status===400);
+    const shown = [...missing].slice(0,5).join("、")+(missing.size>5?" 等 "+missing.size+" 项":"");
+    navMessage = unavailable ? "当前行情接口未提供历史估值，请更新行情 Worker。"
+      : rejectedDates ? "历史行情接口拒绝了估值日期，请检查设备时间后重试。"
+      : !prices.size && failures.length ? "历史行情接口本次请求失败，点击刷新可重试。"
+      : incomplete ? incomplete+" 天估值未齐全"+(shown?" · 缺少 "+shown:"") : "";
   } finally {
     navBusy = false;
     renderNavHistory(portfolio.base,demo);
@@ -238,7 +266,8 @@ function renderNavHistory(base, isDemo) {
     +'<g class="nav-history-line">'+lines+'</g>'+points.map(({x,y,date,value,estimated})=>
       '<circle'+(estimated?' class="nav-estimated"':'')+' cx="'+x+'" cy="'+y+'" r="2.7"><title>'+esc(date+" · "+fmt(value)+" "+base+(estimated?" · 回算":" · 持仓记录"))+'</title></circle>').join("")+'</svg>';
   by("nav-history-dates").textContent = first.date === last.date ? last.date : first.date + " – " + last.date;
-  table("nav-history-table",["估值日","净值 · "+base,"持仓依据"],rows.slice().reverse().map(row=>[
-    td(esc(row.date)),td(fmt(row.value)),td(row.estimated ? "回算" : "持仓记录"),
-  ]));
+  table("nav-history-table",["估值日","净值 · "+base,"估值依据"],rows.slice().reverse().map(row=>{
+    const sources = (row.sources ?? []).filter(source=>Object.hasOwn(navPriceSources,source)).map(source=>navPriceSources[source]);
+    return [td(esc(row.date)),td(fmt(row.value)),td((row.estimated?"回算":"持仓记录")+(sources.length?" · 含"+sources.join("、"):""))];
+  }));
 }

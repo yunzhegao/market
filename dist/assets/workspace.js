@@ -44,7 +44,12 @@ async function requestMarket(scope, parameters = {}, timeout = 23000) {
   if (!hasApi) throw new Error("行情接口未配置");
   const query = new URLSearchParams({scope, ...parameters});
   const response = await fetch(endpoint + "/api/market?" + query, {cache:"no-store", signal:AbortSignal.timeout(timeout)});
-  if (!response.ok) throw new Error("行情暂不可用");
+  if (!response.ok) {
+    const error = new Error("行情暂不可用");
+    error.status = response.status;
+    error.code = (await response.json().catch(()=>null))?.error;
+    throw error;
+  }
   return response.json();
 }
 
