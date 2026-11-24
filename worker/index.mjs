@@ -1,3 +1,5 @@
+import "../dist/assets/adr-reference.js";
+
 const stocks = new Set(["SPYM", "SPY", "RSP", "IWM", "QQQ", "HYG", "JNK", "KRE"]);
 const market = {
   SPYM: "SPYM", VIX: "^VIX", SPY: "SPY", RSP: "RSP", IWM: "IWM", QQQ: "QQQ",
@@ -415,6 +417,7 @@ const adrTicker = /^[A-Z][A-Z0-9.-]{0,14}$/;
 const isinFormat = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/;
 const adrPrograms = new Map();
 const ordinaryListings = new Map();
+const issuerAdrReferences = globalThis.MARKET_ADR_REFERENCE;
 const adrReferenceLifetime = 24 * 60 * 60 * 1000;
 const secondaryTradingMarkets = new Set(["GR","GY","SW","MM","AV","SM"]);
 
@@ -450,30 +453,49 @@ function keepAdrReference(cache,key,result) {
   return result;
 }
 
+function programFields(html) {
+  const fields = new Map();
+  const plain = value => value.replace(/<[^>]*>/g," ").replace(/&(?:nbsp|#160|#xA0);/gi," ")
+    .replace(/&amp;/gi,"&").replace(/\s+/g," ").trim();
+  for (const [,row] of html.matchAll(/<tr\b[^>]*>((?:(?!<\/?tr\b)[\s\S])*)<\/tr>/gi)) {
+    const cells = [...row.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(([,value])=>plain(value));
+    if (cells.length===2) fields.set(cells[0].replace(/:$/, "").trim().toUpperCase(),cells[1]);
+  }
+  return fields;
+}
+
+function programCusip(html,fields) {
+  const cusip = fields.get("CUSIP")?.match(/^[A-Z0-9]{9}\b/i)?.[0];
+  if (cusip) return cusip.toUpperCase();
+  const links = html.replace(/&(?:amp|#38|#x26);/gi,"&");
+  const directory = links.match(/pgm_d\.aspx\?(?:[^\s"'<>]*&)?cusip=([A-Z0-9]{9})(?=[&\s"'<>]|$)/i);
+  // FactSet also carries the program CUSIP in its quote and news links.
+  return (directory?.[1] ?? links.match(/[?&]cusip=([A-Z0-9]{9})(?=[&\s"'<>]|$)/i)?.[1])?.toUpperCase();
+}
+
 async function readAdrProgram(symbol) {
   const saved = adrPrograms.get(symbol);
   if (saved && Date.now()-saved.savedAt < adrReferenceLifetime) return saved.result;
   const factset = new URL("https://citiadr.factsetdigitalsolutions.com/stocks/profile.idms");
   factset.searchParams.set("SYMBOL_US",symbol);
   const html = await upstream(factset,"text",{Accept:"text/html"},9500);
-  const cusip = html.match(/pgm_d\.aspx\?[^"\s]*[&]cusip=([A-Z0-9]{9})"/i)?.[1];
-  if (!cusip) {
-    if (!/pgm_d\.aspx\?[^"\s]*[&]cusip="/i.test(html)) throw new Error("DR directory response unavailable");
+  let fields = programFields(html);
+  if (!fields.get("DR TICKER")) {
+    const cusip = programCusip(html,fields);
+    if (!cusip) throw new Error("DR directory response unavailable");
+    const source = new URL("https://depositaryreceipts.citi.com/adr/guides/pgm_d.aspx");
+    source.search = new URLSearchParams({cusip,pageId:"16",subpageID:"104",typeDisplay:"A"}).toString();
+    fields = programFields(await upstream(source,"text",{Accept:"text/html"},9500));
+  }
+  const ticker = fields.get("DR TICKER"), type = fields.get("DR TYPE");
+  if (ticker?.toUpperCase()!==symbol || !type) throw new Error("DR program response unavailable");
+  if (!/\b(?:ADR|ADS)\b/i.test(type) || /\d/.test(fields.get("INACTIVE DATE") ?? "")) {
     return keepAdrReference(adrPrograms,symbol,null);
   }
-  const source = new URL("https://depositaryreceipts.citi.com/adr/guides/pgm_d.aspx");
-  source.search = new URLSearchParams({cusip,pageId:"16",subpageID:"104",typeDisplay:"A"}).toString();
-  const details = await upstream(source,"text",{Accept:"text/html"},9500);
-  const field = label => details.match(new RegExp("<td\\b[^>]*>\\s*"+label+"\\s*(?:&nbsp;)?\\s*</td>\\s*<td\\b[^>]*>([^<]*)</td>","i"))?.[1]?.trim();
-  const ticker = field("DR Ticker");
-  if (!ticker) throw new Error("DR program response unavailable");
-  if (ticker.toUpperCase() !== symbol || !/\b(?:ADR|ADS)\b/i.test(field("DR Type") ?? "") || field("Inactive Date")) {
-    return keepAdrReference(adrPrograms,symbol,null);
-  }
-  const isin = field("ORD ISIN");
-  const [ordinary, venue] = (field("ORD Ticker") ?? "").toUpperCase().split(/\s+/);
+  const isin = fields.get("ORD ISIN")?.toUpperCase();
+  const [ordinary, venue] = (fields.get("ORD TICKER") ?? "").toUpperCase().split(/\s+/);
   if (!isinFormat.test(isin ?? "") && !ordinaryListing(ordinary,venue)) throw new Error("DR original security unavailable");
-  return keepAdrReference(adrPrograms,symbol,{isin,ordinary,venue,issuer:field("Company Name")?.replace(/&amp;/gi,"&")});
+  return keepAdrReference(adrPrograms,symbol,{isin,ordinary,venue,issuer:fields.get("COMPANY NAME")});
 }
 
 async function lookupOrdinaryIsins(issuers) {
@@ -525,13 +547,15 @@ function yahooOrdinarySymbol(symbol,aliases) {
 }
 
 async function adrListings(symbols) {
-  const programs = await gather(symbols,async symbol=>({program:await readAdrProgram(symbol)}));
+  const listed = symbols.filter(symbol=>Object.hasOwn(issuerAdrReferences,symbol));
+  const programs = await gather(symbols.filter(symbol=>!Object.hasOwn(issuerAdrReferences,symbol)),
+    async symbol=>({program:await readAdrProgram(symbol)}));
   const issuers = new Map(Object.values(programs).flatMap(found=>{
     const program=found?.program;
     return isinFormat.test(program?.isin??"")?[[program.isin,program.issuer]]:[];
   }));
   const matches = await lookupOrdinaryIsins(issuers);
-  return Object.fromEntries(Object.entries(programs).flatMap(([symbol,found])=>{
+  const resolved = Object.entries(programs).flatMap(([symbol,found])=>{
     if (!found) return [];
     if (!found.program) return [[symbol,{isAdr:false,markets:[],complete:true}]];
     const {isin,ordinary,venue} = found.program;
@@ -544,8 +568,10 @@ async function adrListings(symbols) {
       if (local&&!markets.has(local.country)) markets.set(local.country,local);
     }
     const listings=[...markets.values()].map(listing=>({...listing,symbol:yahooOrdinarySymbol(listing.symbol,exact?.result.aliases)}));
-    return [[symbol,{isAdr:true,markets:listings,complete:!isinFormat.test(isin ?? "")||Boolean(exact&&Date.now()-exact.savedAt<adrReferenceLifetime)}]];
-  }));
+    const complete = listings.length>0 && (!isinFormat.test(isin ?? "")||Boolean(exact&&Date.now()-exact.savedAt<adrReferenceLifetime));
+    return [[symbol,{isAdr:true,markets:listings,complete}]];
+  });
+  return Object.fromEntries(resolved.concat(listed.map(symbol=>[symbol,{isAdr:true,complete:true,...issuerAdrReferences[symbol]}])));
 }
 
 async function moexReading() {

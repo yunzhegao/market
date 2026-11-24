@@ -91,7 +91,14 @@ const snapshotQuotes = window.WORLD_SNAPSHOT?.quotes ?? {};
 const quotes = {...snapshotQuotes};
 const yields = {...window.WORLD_SNAPSHOT?.yields};
 const fresh = new Set();
-const adrReferences = new Map();
+const adrCacheKey = "market-adr-listings-v1";
+const adrTicker = /^[A-Z][A-Z0-9.-]{0,14}$/;
+const issuerAdrReferences = globalThis.MARKET_ADR_REFERENCE ?? {};
+const adrReferences = new Map(Object.entries(localRead(adrCacheKey,{})).flatMap(([symbol,reading])=>{
+  const markets=validAdrMarkets(reading?.markets);
+  return adrTicker.test(symbol)&&markets.length
+    ? [[symbol,{isAdr:true,markets,checkAfter:fnum(reading.checkAfter)?reading.checkAfter:0}]] : [];
+}));
 let resolvingAdr = false;
 const fourDays = 4 * 86400000;
 let portfolioRows = localRead(storageKeys.portfolio,{}).positions || [];
@@ -112,14 +119,33 @@ function countryName(country) {
   return ({CN:"中国内地",HK:"香港",TW:"台湾"})[country] ?? regionNames.of(country);
 }
 
+function validAdrMarkets(markets) {
+  return Array.isArray(markets)?markets.filter(row=>row&&typeof row.country==="string"&&/^[A-Z]{2}$/.test(row.country)
+    && typeof row.symbol==="string"&&tickerPattern.test(row.symbol)):[];
+}
+
+function mergeAdrMarkets(...listings) {
+  const markets=new Map();
+  for (const {country,symbol} of listings.flat()) {
+    if (!markets.has(country)) markets.set(country,{country,symbol});
+  }
+  return [...markets.values()];
+}
+
+function holdingAdr(symbol) {
+  const saved=adrReferences.get(symbol);
+  const issuer=Object.hasOwn(issuerAdrReferences,symbol)?issuerAdrReferences[symbol]:null;
+  return {isAdr:Boolean(issuer||saved?.isAdr),markets:mergeAdrMarkets(issuer?.markets??[],saved?.markets??[])};
+}
+
 function heldRows() {
   const rows = new Map();
   for (const {symbol,name,kind,bucket,quantity,price} of portfolioRows) {
     if (!["stock","etf"].includes(kind) || nonEquityBuckets.has(bucket) || !(quantity > 0) || !stockSymbol(symbol)) continue;
     const country=listingCountry(symbol,quotes[symbol]);
-    const adr=adrReferences.get(symbol);
+    const adr=holdingAdr(symbol);
     rows.set(symbol,{symbol,name:name || symbol,kind,country,held:true,localPrice:fnum(price)?price:null,
-      isAdr:adr?.isAdr ?? false, adrMarkets:adr?.markets ?? []});
+      isAdr:adr.isAdr,adrMarkets:adr.markets});
   }
   return [...rows.values()];
 }
@@ -641,26 +667,37 @@ function renderWorld() {
 
 async function refreshAdrReferences(holdings) {
   if (resolvingAdr) return;
-  const symbols=holdings.filter(row=>row.kind==="stock"&&row.country==="US"&&/^[A-Z][A-Z0-9.-]{0,14}$/.test(row.symbol)
+  const symbols=holdings.filter(row=>row.kind==="stock"&&row.country==="US"&&adrTicker.test(row.symbol)
     && (adrReferences.get(row.symbol)?.checkAfter ?? 0)<=Date.now()).map(row=>row.symbol);
   if (!symbols.length) return;
   resolvingAdr=true;
   let changed=false;
+  let save=false;
   try {
     const batches=Array.from({length:Math.ceil(symbols.length/8)},(_,i)=>symbols.slice(i*8,i*8+8));
     await Promise.all(batches.map(async batch=>{
       const data=await requestMarket("adr",{symbols:batch.join(",")},35000).catch(()=>null);
       for (const symbol of batch) {
+        const before=holdingAdr(symbol);
         const previous=adrReferences.get(symbol);
         const reading=data?.listings?.[symbol];
-        const markets=Array.isArray(reading?.markets)?reading.markets.filter(row=>row&&/^[A-Z]{2}$/.test(row.country)&&tickerPattern.test(row.symbol)):[];
-        const match=reading?{isAdr:reading.isAdr===true,markets}:previous;
-        if (Boolean(match?.isAdr)!==Boolean(previous?.isAdr)||JSON.stringify(match?.markets??[])!==JSON.stringify(previous?.markets??[])) changed=true;
-        adrReferences.set(symbol,{...match,checkAfter:Date.now()+(reading?.complete?21600000:180000)});
+        const markets=reading?.isAdr===true?validAdrMarkets(reading.markets):[];
+        const complete=reading?.complete===true && (markets.length>0 || (reading.isAdr===false&&!before.isAdr));
+        const retained=complete&&markets.length?[]:previous?.markets??[];
+        adrReferences.set(symbol,{isAdr:before.isAdr||reading?.isAdr===true,markets:mergeAdrMarkets(retained,markets),
+          checkAfter:Date.now()+(complete?21600000:180000)});
+        const after=holdingAdr(symbol);
+        if (JSON.stringify(after)!==JSON.stringify(before)) changed=true;
+        if (markets.length) save=true;
       }
     }));
   } finally {
     resolvingAdr=false;
+  }
+  if (save) {
+    const confirmed=[...adrReferences].filter(([,reading])=>reading.markets.length);
+    confirmed.sort((a,b)=>b[1].checkAfter-a[1].checkAfter);
+    localWrite(adrCacheKey,Object.fromEntries(confirmed.slice(0,256)));
   }
   if (changed) {
     renderWorld();

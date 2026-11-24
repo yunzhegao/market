@@ -43,7 +43,7 @@ function timeAt(time, zone = "Asia/Shanghai", full = false) {
 async function requestMarket(scope, parameters = {}, timeout = 23000) {
   if (!hasApi) throw new Error("行情接口未配置");
   const query = new URLSearchParams({scope, ...parameters});
-  const response = await fetch(endpoint + "/api/market?" + query, {cache:"no-store", signal:AbortSignal.timeout(23000)});
+  const response = await fetch(endpoint + "/api/market?" + query, {cache:"no-store", signal:AbortSignal.timeout(timeout)});
   if (!response.ok) throw new Error("行情暂不可用");
   return response.json();
 }

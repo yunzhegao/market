@@ -3,7 +3,7 @@
 ## 页面
 
 - `framework.html` — 回调观察框架和美股风险指标。旧首页 `index.html` 会跳转。
-- `world.html` — 地图和分区表展示环球指数与股票持仓。地图按城市经纬度定位指数。悬停市场区域或选中圆点可查看当地指数和组合分析中的同一上市地持仓。陆地和交互边界使用 [Natural Earth](https://www.naturalearthdata.com/downloads/110m-cultural-vectors/) 数据。行情接口为 `scope=world`（每批 8 个代码）。南非和埃及指数使用 Yahoo Finance；俄罗斯 MOEX 使用交易所日收盘，接口暂不可用时显示带日期的收盘快照。`scope=adr` 按持仓代码查询 Citi 存托凭证目录，并用 OpenFIGI 的原股 ISIN 匹配上市市场；原市场详情分别列出原股和持有 ADR 的报价。自建行情 Worker 需要部署新版后才会提供这项匹配。
+- `world.html` — 地图和分区表展示环球指数与股票持仓。地图按城市经纬度定位指数。悬停市场区域或选中圆点可查看当地指数和组合分析中的同一上市地持仓。陆地和交互边界使用 [Natural Earth](https://www.naturalearthdata.com/downloads/110m-cultural-vectors/) 数据。行情接口为 `scope=world`（每批 8 个代码）。南非和埃及指数使用 Yahoo Finance；俄罗斯 MOEX 使用交易所日收盘，接口暂不可用时显示带日期的收盘快照。ADR 按证券代码自动识别。页面内置发行人确认的上市地，并缓存成功的核对结果。`scope=adr` 按代码查询 Citi 存托凭证目录，再用 OpenFIGI 的原股 ISIN 匹配上市市场。原市场详情分别列出原股和持有 ADR 的报价。
 - `portfolio.html` — 手动维护多账户持仓及现金，按选定币种计算市值、价格与汇率贡献、集中度、ETF 重叠和情景损失。双层环形图内圈是分类，外圈是具体持仓，账面现金与现金替代合并在现金类。空白价格日期或当日日期会访问 `scope=fx` 取公开市场汇率。历史价格日期默认使用 Frankfurter 的对应日期参考值。手动汇率优先。
 
 ## 用自己的持仓
