@@ -148,7 +148,7 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .world-overview {
   display:grid;grid-template-columns:minmax(0,1fr) clamp(20rem,26vw,22rem);align-items:start;gap:.6rem;margin-bottom:.6rem;
 }
-.world-map-column {min-width:0;--globe-day-dot:#cfd7e1;--globe-night-dot:#414c5d;--globe-highlight-dot:#367cb9;--globe-terminator:#73839985}
+.world-map-column {min-width:0;--globe-day-dot:#cfd7e1;--globe-night-dot:#414c5d;--globe-highlight-dot:#0086e0;--globe-terminator:#73839985}
 [data-theme="dark"] .world-map-column {--globe-day-dot:#8a99ad;--globe-night-dot:#3f4a59;--globe-highlight-dot:#6098d0;--globe-terminator:#8295ae92}
 .globe-legend {display:flex;align-items:center;flex-wrap:wrap;gap:.2rem .75rem;margin:.2rem 0 0 .35rem;color:var(--muted);font-size:.75rem}
 .globe-legend span {display:inline-flex;align-items:center;gap:.28rem;white-space:nowrap}
