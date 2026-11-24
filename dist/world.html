@@ -14,6 +14,7 @@
   <script defer src="./assets/workspace.js"></script>
   <script defer src="./assets/daily-observations.js"></script>
   <script defer src="./assets/world-countries.js"></script>
+  <script defer src="./assets/world-land-dots.js"></script>
   <script defer src="./assets/world-clock.js"></script>
   <script defer src="./assets/world.js"></script>
 </head>
@@ -53,9 +54,6 @@
         <section class="globe-map" id="globe-map" aria-label="环球指数地图。悬停或选择市场查看当地指数和持仓">
           <svg class="globe-lighting" viewBox="0 0 1000 390" preserveAspectRatio="none" aria-hidden="true" focusable="false">
             <defs>
-              <mask id="globe-land-dots" x="0" y="0" width="1000" height="390" maskUnits="userSpaceOnUse" mask-type="alpha">
-                <image href="./assets/world-globe.svg" width="1000" height="390" preserveAspectRatio="none" />
-              </mask>
               <linearGradient id="globe-terminator-fade" gradientUnits="userSpaceOnUse" x1="21" x2="979" y1="0" y2="0">
                 <stop offset="0" stop-color="currentColor" stop-opacity="0" />
                 <stop offset=".15" stop-color="currentColor" />
@@ -63,11 +61,10 @@
                 <stop offset="1" stop-color="currentColor" stop-opacity="0" />
               </linearGradient>
             </defs>
-            <g mask="url(#globe-land-dots)">
-              <rect class="globe-land-day" width="1000" height="390" />
-              <path class="globe-land-night" id="globe-night" />
-            </g>
             <path class="globe-terminator" id="globe-terminator" />
+            <path class="globe-land-day" id="globe-day" />
+            <path class="globe-land-night" id="globe-night" />
+            <path class="globe-land-highlight" id="globe-highlight" />
           </svg>
           <svg class="globe-areas" id="globe-areas" viewBox="0 0 1000 390" preserveAspectRatio="none" aria-hidden="true"></svg>
           <div class="globe-pins" id="globe-pins"></div>

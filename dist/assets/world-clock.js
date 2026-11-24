@@ -17,8 +17,7 @@ function globeSolarPosition(now) {
   return {declination,longitude};
 }
 
-function globeSolarPaths(now, project) {
-  const {declination,longitude} = globeSolarPosition(now);
+function globeTerminatorPath({declination,longitude}, project) {
   const slope = Math.tan(declination) || 1e-9;
   const longitudes = new Set(Array.from({length:181},(_,i)=>i*2-180));
   // Add points near the equatorial crossings so the steep equinox curves stay smooth.
@@ -31,10 +30,7 @@ function globeSolarPaths(now, project) {
     const latitude = Math.atan(-Math.cos((lon-longitude)*degreesToRadians)/slope)/degreesToRadians;
     return project(lon,latitude).map(n=>n.toFixed(2)).join(",");
   });
-  const terminator = "M"+points.join("L");
-  const nightPole = slope > 0 ? -90 : 90;
-  const night = terminator+"L"+project(180,nightPole).join(",")+"L"+project(-180,nightPole).join(",")+"Z";
-  return {terminator,night};
+  return "M"+points.join("L");
 }
 
 // Minutes since local midnight for usual main sessions. Dated provider hours take precedence.
@@ -73,17 +69,22 @@ function globeMarketStatus(country, reading, now, checkedOnline = false) {
   const local = globeMarketTime(now,zone);
   const result = (state,label) => ({state,label,clock:local?.clock});
   if (!local) return result("unknown","时段待确认");
+  const afterSession = () => {
+    const quoteDate = reading?.observationDate ?? globeMarketTime(reading?.time,zone)?.date;
+    return result("closed",quoteDate===local.date ? "已收盘" : "休市");
+  };
   const tradingDay = standard?.sunToThu ? !["Fri","Sat"].includes(local.weekday) : !["Sat","Sun"].includes(local.weekday);
   if (!tradingDay) return result("closed","休市");
 
   const start = globeMarketTime(reading?.sessionStart,zone), end = globeMarketTime(reading?.sessionEnd,zone);
   const validPeriod = start && end && start.date===end.date && start.minutes<end.minutes;
-  if (checkedOnline && validPeriod && start.date>local.date) return result("closed","休市");
-  const datedPeriod = checkedOnline && validPeriod && start.date===local.date;
+  if (checkedOnline && validPeriod && start.date>local.date) return afterSession();
+  const datedPeriod = validPeriod && start.date===local.date;
   const hours = datedPeriod ? [start.minutes,end.minutes] : standard?.hours ?? (validPeriod ? [start.minutes,end.minutes] : null);
   if (!hours) return result("unknown","时段待确认");
   const [opens,closes] = hours;
-  if (local.minutes<opens || local.minutes>=closes) return result("closed","休市");
+  if (local.minutes<opens) return result("closed","休市");
+  if (local.minutes>=closes) return afterSession();
 
   const midday = local.weekday==="Fri" && standard?.fridayBreak ? standard.fridayBreak : standard?.break;
   if (midday && local.minutes>=midday[0] && local.minutes<midday[1]) return result("closed","午休");
