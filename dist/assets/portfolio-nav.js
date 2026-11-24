@@ -10,13 +10,14 @@ const navView = {range:"month",mode:"line",plot:null,selected:null};
 let navBusy = false;
 let navQueued = false;
 const navRequestedAt = new Map();
+const navPriceSeries = new Map();
 let navMessage = "";
 let navStorageError = false;
 
 const navCutoff = date => Date.parse(date + "T06:00:00+08:00");
 const navDate = at => new Date(at + 8 * 3600000).toISOString().slice(0,10);
 const navFxSymbol = currency => "USD" + currency + "=X";
-const navPriceSources = {hourly:"小时线",close:"日收盘价","fx-reference":"日度参考汇率"};
+const navPriceSources = {hourly:"小时线",close:"日收盘价","carried-close":"沿用最近收盘价","fx-reference":"日度参考汇率"};
 const navAxis = new Intl.NumberFormat("zh-CN",{notation:"compact",maximumSignificantDigits:4});
 
 function latestNavCutoff(now) {
@@ -123,12 +124,15 @@ function migrateNavHistory() {
 
 function navPricesNeeded(days, base) {
   const symbols = new Set();
-  for (const {holdings} of days) {
+  for (const {date,holdings} of days) {
+    const include = symbol=>{
+      if (!navPriceSeries.get(symbol)?.byDate.has(date)) symbols.add(symbol);
+    };
     for (const row of holdings) {
-      if (row.kind !== "cash") symbols.add(row.symbol);
+      if (row.kind !== "cash") include(row.symbol);
       if (row.currency === base) continue;
-      if (base !== "USD") symbols.add(navFxSymbol(base));
-      if (row.currency !== "USD") symbols.add(navFxSymbol(row.currency));
+      if (base !== "USD") include(navFxSymbol(base));
+      if (row.currency !== "USD") include(navFxSymbol(row.currency));
     }
   }
   return [...symbols];
@@ -183,6 +187,53 @@ function navSavedPoints(base, days) {
   });
 }
 
+function navMissingDays(base, days) {
+  const existing = new Set(navSavedPoints(base,days).map(row=>row.date));
+  return days.filter(row=>!existing.has(row.date));
+}
+
+async function loadNavPrices(days, base, failures) {
+  const symbols = navPricesNeeded(days,base);
+  const from = days[0].date, to = days.at(-1).date;
+  const extended = navCutoff(from)<Date.now()-32*navDayMs || navCutoff(to)-navCutoff(from)>31*navDayMs;
+  const batchSize = extended ? 1 : 4;
+  for (let i=0;i<symbols.length;i+=3*batchSize) {
+    const batches = [i,i+batchSize,i+2*batchSize].map(start=>symbols.slice(start,start+batchSize)).filter(batch=>batch.length);
+    const results = await Promise.allSettled(batches.map(batch=>requestMarket("valuation",{symbols:batch.join(","),from,to},45000)));
+    for (const result of results) {
+      if (result.status === "rejected") {
+        failures.push({error:result.reason,extended});
+        continue;
+      }
+      for (const [symbol,quote] of Object.entries(result.value.prices ?? {})) {
+        if (!Array.isArray(quote?.rows) || typeof quote.currency!=="string") continue;
+        const previous = navPriceSeries.get(symbol);
+        const byDate = previous?.currency===quote.currency ? previous.byDate : new Map();
+        for (const row of quote.rows) {
+          if (!Array.isArray(row) || !validNavDate(row[0]) || !fnum(row[1]) || !(row[1]>0)) continue;
+          const [date,price,source] = row;
+          if (!byDate.has(date)) byDate.set(date,{price,source:Object.hasOwn(navPriceSources,source)?source:null});
+        }
+        if (byDate.size) navPriceSeries.set(symbol,{currency:quote.currency,byDate});
+      }
+    }
+    if (failures.some(({error})=>error?.code==="scope" || error?.status===404 || (error?.status===400 && error?.code==="valuation"))) break;
+  }
+}
+
+function saveNavPoints(days, base, missing) {
+  const added = days.flatMap(({date,holdings,basis})=>{
+    const point = navPoint(date,holdings,base,navPriceSeries,missing);
+    return point ? [{...point,basis}] : [];
+  });
+  if (!added.length) return;
+  const book = localRead(navPointsKey,{});
+  const merged = new Map((book[base] ?? []).map(row=>[row.date,row]));
+  for (const row of added) merged.set(row.date,row);
+  book[base] = [...merged.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-navHistoryDays);
+  navStorageError = !localWrite(navPointsKey,book);
+}
+
 async function refreshNavHistory(state, automatic, isDemo, force = false) {
   if (isDemo) return;
   if (navBusy) {
@@ -191,11 +242,8 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
   }
   const now = Date.now();
   const base = state.base;
-  const range = navView.range;
-  const requestKey = base+":"+range;
-  const windowDays = navDays(state.navHistory,now,range);
-  const existing = new Set(navSavedPoints(base,windowDays).map(row=>row.date));
-  const days = windowDays.filter(row=>!existing.has(row.date));
+  const windowDays = navDays(state.navHistory,now,"year");
+  const days = navMissingDays(base,windowDays);
   if (!automatic || !days.length) {
     navMessage = automatic ? "" : "开启自动行情后更新历史估值。";
     return renderNavHistory(base,isDemo);
@@ -205,55 +253,37 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
     navMessage = "历史估值需要行情接口。";
     return renderNavHistory(base,isDemo);
   }
-  if (!force && now-(navRequestedAt.get(requestKey) ?? 0) < 15*60000) return;
+  if (!force && now-(navRequestedAt.get(base) ?? 0) < 15*60000) return;
   navBusy = true;
-  navRequestedAt.set(requestKey,now);
-  navMessage = "正在补齐每日估值…";
+  navRequestedAt.set(base,now);
+  const covered = count=>"过去一年估值 "+count+" / "+windowDays.length+" 天";
+  navMessage = "正在补齐过去一年 · "+covered(windowDays.length-days.length);
   renderNavHistory(base,isDemo);
   try {
-    const prices = new Map();
     const failures = [];
-    const extended = navCutoff(days.at(-1).date)-navCutoff(days[0].date)>31*navDayMs || navCutoff(days[0].date)<now-32*navDayMs;
-    const batchSize = extended ? 2 : 4;
-    for (let i=0;i<symbols.length;i+=3*batchSize) {
-      const batches = [i,i+batchSize,i+2*batchSize].map(start=>symbols.slice(start,start+batchSize)).filter(batch=>batch.length);
-      const results = await Promise.allSettled(batches.map(batch=>requestMarket("valuation",{
-        symbols:batch.join(","),from:days[0].date,to:days.at(-1).date,
-      },45000)));
-      for (const result of results) {
-        if (result.status === "rejected") {
-          failures.push(result.reason);
-          continue;
-        }
-        for (const [symbol,quote] of Object.entries(result.value.prices ?? {})) {
-          if (!Array.isArray(quote?.rows)) continue;
-          const byDate = new Map(quote.rows.filter(row=>Array.isArray(row)&&validNavDate(row[0])&&fnum(row[1])&&row[1]>0)
-            .map(([date,price,source])=>[date,{price,source:Object.hasOwn(navPriceSources,source)?source:null}]));
-          if (byDate.size) prices.set(symbol,{currency:quote.currency,byDate});
-        }
-      }
-      if (failures.some(error=>error?.code==="scope" || error?.status===404)) break;
+    const recentStart = navRangeDates("month",now).from;
+    const recent = days.filter(row=>row.date>=recentStart);
+    if (recent.length && recent.length<days.length) {
+      await loadNavPrices(recent,base,failures);
+      saveNavPoints(recent,base,new Set());
+      navMessage = "正在补齐过去一年 · "+covered(navSavedPoints(base,windowDays).length);
+      renderNavHistory(portfolio.base,demo);
     }
+    const pending = navMissingDays(base,windowDays);
     const missing = new Set();
-    const added = days.flatMap(({date,holdings,basis})=>{
-      const point = navPoint(date,holdings,base,prices,missing);
-      return point ? [{...point,basis}] : [];
-    });
-    if (added.length) {
-      const book = localRead(navPointsKey,{});
-      const merged = new Map((book[base] ?? []).map(row=>[row.date,row]));
-      for (const row of added) merged.set(row.date,row);
-      book[base] = [...merged.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-navHistoryDays);
-      navStorageError = !localWrite(navPointsKey,book);
+    const unavailable = failures.some(({error})=>error?.code==="scope" || error?.status===404);
+    if (pending.length && !unavailable) {
+      await loadNavPrices(pending,base,failures);
+      saveNavPoints(pending,base,missing);
     }
-    const incomplete = days.length-added.length;
-    const unavailable = failures.some(error=>error?.code==="scope" || error?.status===404);
-    const rejectedDates = failures.some(error=>error?.code==="valuation" && error?.status===400);
+    const count = navSavedPoints(base,windowDays).length;
+    const unsupported = failures.some(({error})=>error?.code==="scope" || error?.status===404);
+    const rejected = failures.find(({error})=>error?.code==="valuation" && error?.status===400);
     const shown = [...missing].slice(0,5).join("、")+(missing.size>5?" 等 "+missing.size+" 项":"");
-    navMessage = unavailable ? "当前行情接口未提供历史估值，请更新行情 Worker。"
-      : rejectedDates ? (extended ? "此区间需要新版行情 Worker。" : "历史行情接口拒绝了估值日期，请检查设备时间后重试。")
-      : !prices.size && failures.length ? "历史行情接口本次请求失败，点击刷新可重试。"
-      : incomplete ? incomplete+" 天估值未齐全"+(shown?" · 缺少 "+shown:"") : "";
+    navMessage = unsupported ? "当前行情接口未提供历史估值，请更新行情 Worker。"
+      : rejected ? covered(count)+(rejected.extended ? " · 一年回算需要新版行情 Worker。" : " · 行情接口拒绝了估值日期。")
+      : count===windowDays.length ? ""
+      : covered(count)+(shown?" · 缺少 "+shown:failures.length?" · 行情请求失败":"");
   } finally {
     navBusy = false;
     renderNavHistory(portfolio.base,demo);
@@ -328,9 +358,7 @@ function initNavChart() {
       navView[field] = value;
       navView.selected = null;
       for (const option of buttons) option.setAttribute("aria-pressed",String(selectedValue(option)===value));
-      if (field==="range") navMessage = navBusy ? "正在读取每日估值…" : "";
       renderNavHistory(portfolio.base,demo);
-      if (field==="range") refreshNavHistory(portfolio,livePortfolio,demo,true);
     });
   };
   bindChoices("range");
@@ -375,7 +403,9 @@ function renderNavHistory(base, isDemo) {
     +" · 最大回撤 "+esc(pctText(drawdown*100)) : "";
   by("nav-history-summary").innerHTML = esc(fmt(last.value)+" "+base+(last.estimated?" · 回算":""))+change;
   drawNavPlot(rows,from,to);
-  by("nav-history-dates").textContent = from===to ? to : from+" – "+to;
+  const dateLabel = from===to ? to : from+" – "+to;
+  const coverage = navView.range==="year" || rows.length<days.length ? " · "+rows.length+" / "+days.length+" 天" : "";
+  by("nav-history-dates").textContent = dateLabel+coverage;
   by("nav-history-unit").textContent = "每日 06:00 新加坡时间 · "+(candle?"周 K 线 · 变动较该周首值":"日净值 · 变动较前一日");
   table("nav-history-table",["估值日","净值 · "+base,"估值依据"],rows.slice().reverse().map(row=>{
     const sources = (row.sources ?? []).filter(source=>Object.hasOwn(navPriceSources,source)).map(source=>navPriceSources[source]);

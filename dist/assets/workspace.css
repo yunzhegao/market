@@ -22,6 +22,7 @@
 .market-line:last-child {border-bottom:0}
 .market-name {min-width:0;line-height:1.2}
 .market-name span,.market-name small {display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.market-line:is(:hover,:focus-visible) .market-name > span {color:var(--accent)}
 .market-name small,.market-no-data {color:var(--muted);font-size:.63rem;margin-top:.13rem}
 .market-number {text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .market-number strong {font-weight:610}
@@ -52,15 +53,17 @@
 }
 .work-method {margin-top:.6rem;border-top:1px solid var(--line);padding:.5rem .1rem;font-size:.76rem;color:var(--muted)}
 .work-method summary {cursor:pointer;color:var(--ink);font-weight:600}
+.work-method summary:is(:hover,:focus-visible) {color:var(--accent)}
 .work-method p {margin:.42rem 0;max-width:90ch}
 .work-page input,.work-page select,.editor-dialog input,.editor-dialog select,dialog textarea {
   font:inherit;color:var(--ink);background:var(--page);border:1px solid var(--line);border-radius:5px;padding:.34rem .42rem;max-width:100%
 }
 dialog textarea {display:block;width:100%;margin-top:.35rem}
 .compact-button,.solid-button {border:1px solid var(--line);background:var(--page);border-radius:5px;padding:.34rem .55rem;white-space:nowrap}
-.compact-button:hover {background:var(--subtle)}
+.compact-button:enabled:is(:hover,:focus-visible) {background:var(--subtle);color:var(--accent)}
 .solid-button {background:var(--accent);border-color:var(--accent);color:var(--page);font-weight:600}
-.solid-button:hover {filter:brightness(.91)}
+.solid-button:enabled:is(:hover,:focus-visible) {background:var(--accent-hover);border-color:var(--accent-hover)}
+.work-page select:enabled:is(:hover,:focus-visible),.editor-dialog select:enabled:is(:hover,:focus-visible) {border-color:var(--accent)}
 .empty-portfolio {padding:1.3rem;margin:.5rem 0}
 .empty-portfolio p {margin:.45rem 0 .7rem;color:var(--muted)}
 .portfolio-kpis {display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,2.2fr) repeat(2,minmax(0,.78fr)) minmax(0,1.5fr);gap:.6rem;margin-bottom:.6rem}
@@ -146,6 +149,8 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .public-portfolio {margin-bottom:.65rem}
 .quote-switch {display:flex;align-items:center;gap:.18rem;white-space:nowrap}
 .quote-switch input {accent-color:var(--accent)}
+.quote-switch:has(input:enabled):is(:hover,:focus-within) {color:var(--accent)}
+.quote-switch:is(:hover,:focus-within) input:enabled {accent-color:var(--accent-hover)}
 
 /* Market overview */
 .world-overview {
@@ -210,7 +215,7 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .globe-label[hidden],.globe-popup[hidden] {display:none}
 .globe-label span {color:var(--ink);font-weight:555}
 .globe-label strong {font-size:.78rem;font-weight:675;font-variant-numeric:tabular-nums}
-.globe-pin:hover .globe-label span,.globe-pin:focus-visible .globe-label span {text-decoration:underline;text-underline-offset:.17em}
+.globe-pin:is(:hover,:focus-visible) .globe-label span {color:var(--accent)}
 .globe-popup {
   position:absolute;z-index:2;width:min(255px,calc(100% - 8px));max-height:100%;
   display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;background:var(--page);
@@ -223,7 +228,7 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .globe-popup-rows {padding:.18rem .55rem .38rem;overflow:auto;overscroll-behavior:contain}
 .globe-market-group h3 {margin:.35rem 0 .13rem;color:var(--muted);font-size:.70rem;font-weight:580}
 .globe-market-group a {display:flex;justify-content:space-between;align-items:center;gap:.40rem;padding:.19rem 0;color:var(--ink);font-size:.76rem}
-.globe-market-group a:hover {color:var(--accent)}
+.globe-market-group a:is(:hover,:focus-visible) > span {color:var(--accent)}
 .globe-market-group .globe-adr-link {padding-left:.65rem;color:var(--muted);font-size:.69rem}
 .globe-market-group a small {margin-left:.35rem;color:var(--muted);font-size:.65rem;white-space:nowrap}
 .globe-market-group a .globe-quote-detail {display:block;margin:0;white-space:normal}
@@ -246,6 +251,7 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 #world-fx-primary {grid-column:1;grid-row:2/4}
 #world-fx-pairs {grid-column:2;grid-row:1/4}
 .world-cross-quote {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.1rem .3rem;align-items:baseline;align-content:start;padding:.27rem 0;font-size:.78rem}
+a.world-cross-quote:is(:hover,:focus-visible) > span {color:var(--accent)}
 .world-cross-quote:first-child {border-top:1px solid transparent}
 .world-cross-quote + .world-cross-quote {border-top:1px solid var(--line)}
 .world-cross-quote strong,.world-cross-quote b {font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
@@ -299,7 +305,10 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .allocation-label small {display:block;color:var(--muted);font-size:.61rem;overflow:hidden;text-overflow:ellipsis}
 .allocation-label i {flex:none;width:.51rem;height:.51rem;border-radius:50%}
 .allocation-legend {max-height:190px;overflow:auto}
-.allocation-legend button:hover,.allocation-legend button[aria-pressed="true"] {background:var(--subtle)}
+.allocation-legend button:not([aria-pressed="true"]):is(:hover,:focus-visible) {background:var(--subtle)}
+.allocation-legend button:not([aria-pressed="true"]):is(:hover,:focus-visible) .allocation-label b {color:var(--accent)}
+.allocation-legend button[aria-pressed="true"] {border-radius:4px;border-color:transparent;box-shadow:inset 0 0 0 1px var(--accent)}
+.allocation-legend button[aria-pressed="true"]:is(:hover,:focus-visible) {box-shadow:inset 0 0 0 1px var(--accent-hover)}
 .allocation-note {margin-bottom:0}
 @media(max-width:1030px) and (min-width:781px) {
   .allocation-layout {grid-template-columns:minmax(103px,.65fr) minmax(0,1.4fr)}

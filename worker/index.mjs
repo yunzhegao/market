@@ -643,7 +643,9 @@ async function latestFx() {
 
 const dayMs = 86400000;
 const valuationMaxAge = 4 * dayMs;
+const valuationCloseMaxAge = 14 * dayMs;
 const valuationFxCurrency = symbol => /^USD([A-Z]{3})=X$/.exec(symbol)?.[1];
+const valuationClocks = new Map();
 
 function valuationDate(cutoff) {
   return new Date(cutoff + 8 * 3600000).toISOString().slice(0,10);
@@ -661,7 +663,9 @@ function valuationCutoffs(from, to, now = Date.now()) {
 }
 
 function completedValuationBars(chart, cutoffs, barMs) {
-  const bars = yahooRows(chart).filter(row=>row[1]>0).sort((a,b)=>a[0]-b[0]);
+  const closes = chart.indicators?.quote?.[0]?.close ?? [];
+  const bars = (chart.timestamp ?? []).flatMap((seconds,i)=>finite(seconds)&&finite(closes[i])&&closes[i]>0 ? [[seconds*1000,closes[i]]] : []);
+  if (bars.some(([at],i)=>i>0 && at<bars[i-1][0])) bars.sort((a,b)=>a[0]-b[0]);
   let index = 0;
   if (barMs) return cutoffs.flatMap(cutoff=>{
     while (index < bars.length && bars[index][0]+barMs <= cutoff) index++;
@@ -674,26 +678,27 @@ function completedValuationBars(chart, cutoffs, barMs) {
   // to decide when a close could have been known, including across DST changes.
   const {exchangeTimezoneName:timeZone,currentTradingPeriod} = chart.meta;
   if (!timeZone) return [];
-  const formatter = new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit",
-    hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"});
-  const local = at => {
-    const {year,month,day,hour,minute,second} = Object.fromEntries(formatter.formatToParts(at).map(({type,value})=>[type,value]));
-    return year+"-"+month+"-"+day+"T"+hour+":"+minute+":"+second;
-  };
+  if (!valuationClocks.has(timeZone)) {
+    valuationClocks.set(timeZone,new Intl.DateTimeFormat("sv-SE",{timeZone,year:"numeric",month:"2-digit",day:"2-digit",
+      hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}));
+  }
+  const formatter = valuationClocks.get(timeZone);
+  const local = at => formatter.format(at);
   const asOf = value => value > 0 ? local(value*1000) : "";
   const session = currentTradingPeriod?.regular;
   const open = asOf(session?.start), close = asOf(session?.end);
   const closeTime = open && open.slice(0,10)===close.slice(0,10) && close > open ? close.slice(10) : null;
   const daily = bars.map(([at,value])=>{
     const date = local(at).slice(0,10);
-    const eligible = closeTime ? date+closeTime : new Date(Date.parse(date)+dayMs).toISOString().slice(0,19);
+    const eligible = closeTime ? date+closeTime : new Date(Date.parse(date)+dayMs).toISOString().slice(0,10)+" 00:00:00";
     return {at,value,eligible};
   });
   return cutoffs.flatMap(cutoff=>{
     const at = local(cutoff);
     while (index < daily.length && daily[index].at<=cutoff && daily[index].eligible<=at) index++;
     const bar = daily[index-1];
-    return bar && bar.at >= cutoff-valuationMaxAge ? [[valuationDate(cutoff),bar.value,"close"]] : [];
+    if (!bar || bar.at < cutoff-valuationCloseMaxAge) return [];
+    return [[valuationDate(cutoff),bar.value,bar.at<cutoff-valuationMaxAge?"carried-close":"close"]];
   });
 }
 
@@ -701,17 +706,16 @@ async function valuationPrices(symbol, cutoffs) {
   const fx = valuationFxCurrency(symbol);
   const [main,alternate] = yahooHosts;
   const attempts = [[symbol,main,"15m",900000],[symbol,alternate,"15m",900000],
-    [symbol,main,"60m",3600000],[symbol,alternate,"60m",3600000]];
-  if (fx) attempts.push([fx+"=X",main,"60m",3600000]);
-  attempts.push([symbol,main,"1d",0]);
-  if (!fx) attempts.push([symbol,alternate,"1d",0]);
+    [symbol,main,"60m",3600000],[fx?fx+"=X":symbol,alternate,"60m",3600000],
+    [symbol,main,"1d",0],[fx?fx+"=X":symbol,alternate,"1d",0]];
   const recent = Date.now()-35*dayMs;
+  const dates = cutoffs.map(at=>[at,valuationDate(at)]);
   const rows = new Map();
   let currency;
   for (const [ticker,host,interval,barMs] of attempts) {
-    const pending = cutoffs.filter(at=>(!barMs || at>=recent) && !rows.has(valuationDate(at)));
+    const pending = dates.flatMap(([at,date])=>(!barMs || at>=recent) && !rows.has(date) ? [at] : []);
     if (!pending.length) continue;
-    const bounds = {period1:(pending[0]-valuationMaxAge)/1000,period2:pending.at(-1)/1000};
+    const bounds = {period1:(pending[0]-(barMs?valuationMaxAge:valuationCloseMaxAge))/1000,period2:pending.at(-1)/1000};
     try {
       const chart = await yahooSymbolChart(ticker,host,interval,bounds);
       const code = chart.meta?.currency;
@@ -734,18 +738,20 @@ async function completeValuationFx(prices, cutoffs) {
   });
   if (!targets.length) return;
   const utcDay = at => new Date(at).toISOString().slice(0,10);
-  const from = utcDay(cutoffs[0]-valuationMaxAge), to = utcDay(cutoffs.at(-1));
+  const from = utcDay(cutoffs[0]-valuationCloseMaxAge), to = utcDay(cutoffs.at(-1));
   const params = new URLSearchParams({base:"USD",symbols:targets.map(row=>row.currency).join(",")});
   const {rates} = await upstream("https://api.frankfurter.dev/v1/"+from+".."+to+"?"+params);
   const published = Object.entries(rates ?? {}).map(([date,values])=>({at:Date.parse(date+"T19:00:00Z"),values}))
     .filter(row=>finite(row.at)).sort((a,b)=>a.at-b.at);
   for (const {symbol,currency,rows} of targets) {
+    const series = published.filter(row=>finite(row.values?.[currency]) && row.values[currency]>0);
+    let next = 0;
     for (const cutoff of cutoffs) {
       const day = valuationDate(cutoff);
+      while (next<series.length && series[next].at<=cutoff) next++;
       if (rows.has(day)) continue;
-      const latest = published.findLast(row=>row.at<=cutoff && row.at>=cutoff-valuationMaxAge
-        && finite(row.values?.[currency]) && row.values[currency]>0);
-      if (latest) rows.set(day,[day,latest.values[currency],"fx-reference"]);
+      const latest = series[next-1];
+      if (latest && latest.at>=cutoff-valuationCloseMaxAge) rows.set(day,[day,latest.values[currency],"fx-reference"]);
     }
     if (rows.size) prices[symbol] = {currency,rows:[...rows.values()].sort((a,b)=>a[0].localeCompare(b[0]))};
   }
