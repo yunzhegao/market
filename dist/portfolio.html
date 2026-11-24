@@ -13,6 +13,7 @@
   <script defer src="./assets/world-snapshot.js"></script>
   <script defer src="./assets/portfolio-model.js"></script>
   <script defer src="./assets/workspace.js"></script>
+  <script defer src="./assets/allocation.js"></script>
   <script defer src="./assets/portfolio.js"></script>
 </head>
 <body>
@@ -22,7 +23,7 @@
       <div class="header-start">
         <span class="site-name">市场观察</span>
         <nav class="site-nav" aria-label="网站导航">
-          <a href="./index.html">观察框架</a>
+          <a href="./framework.html">观察框架</a>
           <a href="./world.html">环球市场</a>
           <a href="./portfolio.html" aria-current="page">组合分析</a>
         </nav>
@@ -44,11 +45,17 @@
       <h1>个人投资组合分析</h1>
       <div class="page-tools">
         <label for="base-currency">显示币种</label><select id="base-currency"></select>
+        <label class="quote-switch"><input type="checkbox" id="live-portfolio" checked>自动行情</label>
         <button type="button" class="compact-button" id="edit-rates">汇率</button>
+        <button type="button" class="compact-button" id="public-portfolio" hidden>展示设置</button>
         <button type="button" class="solid-button" id="edit-portfolio">编辑持仓</button>
       </div>
     </div>
     <p id="portfolio-status" class="work-status" role="status"></p>
+    <section id="portfolio-public-view" class="panel work-panel public-portfolio" hidden>
+      <div class="section-line"><h2>持仓展示</h2><span id="published-time"></span></div>
+      <div class="work-table-wrap"><table class="work-table" id="public-holdings"></table></div>
+    </section>
     <section id="portfolio-empty" class="panel empty-portfolio" hidden>
       <h2>添加你的第一个账户</h2>
       <p>在编辑器里填持仓和现金，也可以导入已准备好的持仓文件。</p>
@@ -58,6 +65,23 @@
       <section id="portfolio-kpis" class="portfolio-kpis" aria-label="组合概况"></section>
       <div class="portfolio-layout">
         <div class="work-stack">
+          <section class="panel work-panel" aria-labelledby="allocation-title">
+            <div class="section-line">
+              <h2 id="allocation-title">组合分布与涨跌</h2>
+              <div class="segments" role="group" aria-label="明细层级">
+                <button type="button" data-allocation-mode="category" aria-pressed="true">分类</button>
+                <button type="button" data-allocation-mode="asset" aria-pressed="false">持仓</button>
+              </div>
+            </div>
+            <div class="allocation-layout">
+              <div class="allocation-chart" id="allocation-chart" aria-label="外圈是持仓，内圈是分类"></div>
+              <div class="allocation-key">
+                <div class="allocation-row allocation-head"><span>分类／持仓</span><span>权重</span><span>日涨跌</span><span>日贡献</span></div>
+                <div id="allocation-legend" class="allocation-legend"></div>
+              </div>
+            </div>
+            <p class="work-note allocation-note" id="allocation-note">内圈为分类，外圈为持仓。涨跌和日贡献按显示币种计算，含汇率影响。</p>
+          </section>
           <section class="panel work-panel" aria-labelledby="holdings-title">
             <div class="section-line"><h2 id="holdings-title">合并持仓与今日贡献</h2><div class="page-tools"><label for="holdings-sort" class="visually-hidden">持仓排序</label><select id="holdings-sort"><option value="value">按市值</option><option value="impact">按盈亏贡献</option></select></div></div>
             <div class="work-table-wrap"><table class="work-table" id="holdings-table"></table></div>
@@ -83,7 +107,7 @@
               <summary>各标的重叠敞口变化</summary>
               <div class="work-table-wrap"><table class="work-table" id="simulation-exposure"></table></div>
             </details>
-            <p class="work-note">按指定账户和币种结算。费用以成交币种计。现金和可出售的现金替代资产分开显示。</p>
+            <p class="work-note">现金包含账面现金和现金替代。模拟买入按指定账户与币种核对可用账面现金，卖出现金替代后才计入可用金额。费用以成交币种计。</p>
           </section>
           <section class="panel work-panel" aria-labelledby="stress-title">
             <div class="section-line"><h2 id="stress-title">压力情景</h2><button type="button" class="text-button" id="edit-stress">调整冲击</button></div>
@@ -94,10 +118,19 @@
       </div>
     </div>
     <details class="work-method"><summary>组合计算口径</summary>
-      <p>市值按最新输入价和当期汇率折算。今日价格贡献＝数量 × 价格变动 × 当期汇率。汇率贡献＝数量 × 前收 × 汇率变动。两项相加等于按当前持仓数量计算的市值变动。交易流水、股息、转账和税费未纳入日归因。</p>
+      <p>自动行情开启时，市值使用最新可得报价和当期汇率。关闭自动行情后，使用手动价格。盘前和盘后价格按最近可得报价显示。今日价格贡献＝数量 × 价格变动 × 当期汇率。汇率贡献＝数量 × 前收 × 汇率变动。两项相加等于按当前持仓数量计算的市值变动。交易流水、股息、转账和税费未纳入日归因。</p>
       <p>未实现盈亏按录入的本币平均成本和当期汇率估算。ETF 只穿透已录入成分，直接和间接权重使用组合净值作分母。手动汇率可覆盖自动报价，缺价格或汇率的记录标记为缺项。</p>
     </details>
   </main>
+  <dialog id="public-dialog" class="editor-dialog" aria-labelledby="public-title">
+    <div class="dialog-header"><h2 id="public-title">展示设置</h2><form method="dialog"><button class="close-button" aria-label="关闭">×</button></form></div>
+    <div class="dialog-body">
+      <p class="work-note">展示内容包含证券代码、名称、类别和占已计价组合的比重。账户、数量、成本、现金和盈亏留在管理页。</p>
+      <div class="work-table-wrap"><table class="work-table" id="public-draft"></table></div>
+      <p class="work-error" id="public-error" role="alert"></p>
+      <div class="editor-actions"><button id="unpublish-portfolio" type="button" class="compact-button">停止展示</button><div class="page-tools"><button id="export-public" type="button" class="compact-button">导出展示文件</button><button id="publish-portfolio" type="button" class="solid-button">保存展示内容</button></div></div>
+    </div>
+  </dialog>
   <input type="file" id="import-portfolio" accept=".json,application/json" hidden>
   <dialog id="portfolio-dialog" class="editor-dialog" aria-labelledby="editor-title">
     <div class="dialog-header"><h2 id="editor-title"></h2><form method="dialog"><button class="close-button" aria-label="关闭">×</button></form></div>

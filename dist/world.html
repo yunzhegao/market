@@ -21,7 +21,7 @@
       <div class="header-start">
         <span class="site-name">市场观察</span>
         <nav class="site-nav" aria-label="网站导航">
-          <a href="./index.html">观察框架</a>
+          <a href="./framework.html">观察框架</a>
           <a href="./world.html" aria-current="page">环球市场</a>
           <a href="./portfolio.html">组合分析</a>
         </nav>
@@ -41,9 +41,17 @@
   <main id="main" class="shell work-page">
     <div class="page-line">
       <h1>环球市场</h1>
-      <div class="page-tools"><label for="ticker-filter" class="visually-hidden">查找行情</label><input id="ticker-filter" type="search" placeholder="查找指数、资产或代码"></div>
+      <div class="page-tools"><label for="ticker-filter" class="visually-hidden">查找行情</label><input id="ticker-filter" type="search" placeholder="查找指数、股票或代码"></div>
     </div>
     <p class="work-status" id="world-status" role="status">正在载入行情…</p>
+    <section class="panel work-panel globe-panel" aria-labelledby="globe-title">
+      <div class="section-line"><h2 id="globe-title">环球市场地图</h2><span>主要指数、大盘股与地区持仓 · 较前收</span></div>
+      <div class="globe-map" id="globe-map">
+        <img class="globe-base" src="./assets/world-globe.svg" alt="">
+        <svg id="globe-points" class="globe-points" viewBox="0 0 1000 390" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="globe-regions" id="globe-regions"></div>
+      </div>
+    </section>
     <div class="world-layout">
       <div class="work-stack">
         <section class="panel work-panel" aria-labelledby="indices-title">
@@ -55,14 +63,13 @@
         <section class="panel work-panel" aria-labelledby="watch-title">
           <div class="section-line"><h2 id="watch-title">我的持仓与自选</h2><button id="edit-watchlist" type="button" class="text-button">编辑自选</button></div>
           <div id="watch-rows"></div>
-          <p class="work-note" id="watch-help" hidden>在组合页添加持仓后，股票和 ETF 会出现在这里。<a class="text-button" href="./portfolio.html">管理持仓</a></p>
+          <p class="work-note" id="watch-help" hidden>在组合页添加持仓后，股票及股票型 ETF 会按上市地出现在这里。<a class="text-button" href="./portfolio.html">管理持仓</a></p>
         </section>
-        <div id="cross-markets" class="cross-grid"></div>
       </div>
     </div>
     <details class="work-method">
       <summary>行情口径</summary>
-      <p>指数、期货和外汇采用 Yahoo Finance 的最新可得报价，可能延迟。小图显示最近一个可用交易时段。美国国债使用美国财政部或 FRED 日度观测，涨跌以基点计。期货是连续合约，换月可能影响涨跌。</p>
+      <p>指数和股票采用 Yahoo Finance 的最新可得报价。页面可见时每分钟查询。美股展示可取得的盘前、盘中和盘后报价。Yahoo Finance 的 SGX 和港股公开行情分别延迟约 20 和 15 分钟，休市时展示上一笔报价。小图显示最近的可用交易时段。地图按证券上市交易地归类，地图轮廓来自 Natural Earth。</p>
       <p>自选保存在本机。显示持仓行情时，接口只接收股票代码。行情未核实的持仓可以显示你手动填写的价格，不计算来源不同的日涨跌。</p>
     </details>
   </main>
@@ -71,7 +78,7 @@
     <form id="watch-form" class="dialog-body">
       <label for="watch-input">每行一个代码，可在逗号后写名称</label>
       <textarea id="watch-input" rows="7" placeholder="O39.SI, 华侨银行&#10;NVDA, 英伟达"></textarea>
-      <p class="work-note">持仓自动从组合页合并。自选最多 24 个，支持 Yahoo Finance 的市场后缀。</p>
+      <p class="work-note">股票及股票型 ETF 持仓自动从组合页合并。自选最多 24 个，支持 Yahoo Finance 的市场后缀。</p>
       <p id="watch-error" class="work-error" role="alert"></p>
       <button class="solid-button" type="submit">保存自选</button>
     </form>

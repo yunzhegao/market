@@ -79,8 +79,8 @@ async function yahooChart(key, hostname, interval, range) {
   return yahooSymbolChart(market[key], hostname, interval, range);
 }
 
-async function yahooSymbolChart(symbol, hostname, interval, range) {
-  const query = new URLSearchParams({interval, range, includePrePost: "false"});
+async function yahooSymbolChart(symbol, hostname, interval, range, includePrePost = false) {
+  const query = new URLSearchParams({interval, range, includePrePost: String(includePrePost)});
   const url = "https://" + hostname + "/v8/finance/chart/" + encodeURIComponent(symbol) + "?" + query;
   const data = await upstream(url);
   const result = data.chart?.result?.[0];
@@ -396,12 +396,26 @@ const worldSymbol = /^\^?[A-Z0-9][A-Z0-9.=^\-]{0,18}$/;
 const conversionCurrencies = ["EUR", "GBP", "JPY", "SGD", "HKD", "CNY", "AUD", "CAD", "CHF", "KRW", "TWD", "CNH"];
 const worldCache = new Map();
 
+function equitySession(meta, stamp) {
+  if (meta.exchangeTimezoneName !== "America/New_York" || !["EQUITY","ETF"].includes(meta.instrumentType)) return null;
+  const parts = eastParts.formatToParts(stamp);
+  const hour = Number(parts.find(part => part.type === "hour")?.value);
+  const minute = Number(parts.find(part => part.type === "minute")?.value);
+  const clock = hour * 60 + minute;
+  const periods = meta.currentTradingPeriod || {};
+  if (stamp >= periods.regular?.start * 1000 && stamp <= periods.regular?.end * 1000) return "regular";
+  for (const [key,label] of [["pre","pre"],["post","post"]]) {
+    if (stamp >= periods[key]?.start * 1000 && stamp <= periods[key]?.end * 1000) return label;
+  }
+  return clock < 570 ? "pre" : clock > 960 ? "post" : "regular";
+}
+
 async function worldReading(symbol) {
   const cached = worldCache.get(symbol);
   if (cached && Date.now() - cached.received < 55000) return cached.quote;
   for (const host of yahooHosts) {
     try {
-      const chart = await yahooSymbolChart(symbol, host, "5m", "1d");
+      const chart = await yahooSymbolChart(symbol, host, "5m", "1d", !symbol.startsWith("^") && !symbol.includes("="));
       const meta = chart.meta ?? {};
       const rows = yahooRows(chart);
       const lastBar = last(rows);
@@ -415,8 +429,10 @@ async function worldReading(symbol) {
       if (last(spark) !== current) spark.push(current);
       const regular = meta.currentTradingPeriod?.regular;
       const quote = {
-        price: current, previous: changeBase(meta, current), time, spark, source: "yahoo",
+        price: current, previous: changeBase(meta, meta.regularMarketPrice ?? current), time, spark, source: "yahoo",
         timezone: meta.exchangeTimezoneName, currency: meta.currency,
+        session: equitySession(meta,time),
+        delayMinutes: symbol.endsWith(".SI") ? 20 : /\.HK$|^\^HS/.test(symbol) ? 15 : null,
         sessionStart: finite(regular?.start) ? regular.start * 1000 : null,
         sessionEnd: finite(regular?.end) ? regular.end * 1000 : null,
       };
@@ -467,9 +483,77 @@ async function worldTreasury() {
   return gather(Object.keys(treasuryTerms),getFred);
 }
 
+const portfolioHeaders = {"Content-Type":"application/json", "Cache-Control":"no-store"};
+
+function safePublicPortfolio(positions) {
+  if (!Array.isArray(positions) || positions.length > 400) return null;
+  const rows = new Map();
+  for (const row of positions) {
+    if (!worldSymbol.test(row?.symbol || "") || !["stock","etf"].includes(row.kind)) return null;
+    const weight = row.weight;
+    if (!finite(weight) || weight < 0 || weight > 100) return null;
+    rows.set(row.symbol, {
+      symbol:row.symbol, kind:row.kind, name:String(row.name || "").slice(0,90), weight,
+    });
+  }
+  return [...rows.values()];
+}
+
+async function portfolioRoute(request, env, ownerSite) {
+  const url = new URL(request.url);
+  const isPublic = url.pathname.endsWith("/public");
+  const reply = (payload,status = 200) => Response.json(payload,{status,
+    headers:isPublic ? {...portfolioHeaders,"Access-Control-Allow-Origin":"*"} : portfolioHeaders});
+  if (!env?.DB) return reply({error:"数据库暂不可用"},503);
+  if (isPublic) {
+    if (request.method !== "GET") return reply({error:"请求方法无效"},405);
+    const row = await env.DB.prepare("SELECT public_json, published_at FROM portfolio_book WHERE id=1").first();
+    return reply({positions:row?.public_json ? JSON.parse(row.public_json) : [], publishedAt:row?.published_at ?? null});
+  }
+  const key = env.PORTFOLIO_ADMIN_KEY;
+  if (!ownerSite && (!key || request.headers.get("Authorization") !== "Bearer " + key)) return reply({error:"需要管理授权"},401);
+  if (request.method === "GET") {
+    const row = await env.DB.prepare("SELECT * FROM portfolio_book WHERE id=1").first();
+    if (!row) return reply({error:"数据库尚未初始化"},503);
+    return reply({version:row.version, portfolio:row.draft_json ? JSON.parse(row.draft_json) : null,
+      updatedAt:row.updated_at, publishedAt:row.published_at});
+  }
+  if (request.method !== "PUT") return reply({error:"请求方法无效"},405);
+  if (request.headers.has("Origin") && request.headers.get("Origin") !== url.origin) return reply({error:"只允许同站保存"},403);
+  if (!request.headers.get("Content-Type")?.startsWith("application/json")) return reply({error:"请求格式无效"},415);
+  const body = await request.text();
+  if (new TextEncoder().encode(body).length > 200000) return reply({error:"持仓文件过大"},413);
+  let update;
+  try {update = JSON.parse(body);} catch {return reply({error:"请求格式无效"},400);}
+  if (!Number.isSafeInteger(update?.version) || update.version < 0) return reply({error:"版本号无效"},400);
+  const now = new Date().toISOString();
+  let command;
+  if (update.mode === "save") {
+    const data = update.portfolio;
+    if (!Array.isArray(data?.positions) || data.positions.length > 400 || data.positions.some(row=>!row || typeof row !== "object")) {
+      return reply({error:"持仓格式无效"},400);
+    }
+    command = env.DB.prepare("UPDATE portfolio_book SET draft_json=?, updated_at=?, version=version+1 WHERE id=1 AND version=?")
+      .bind(JSON.stringify(data),now,update.version);
+  } else if (update.mode === "publish" || update.mode === "unpublish") {
+    const snapshot = update.mode === "publish" ? safePublicPortfolio(update.positions) : [];
+    if (!snapshot) return reply({error:"持仓展示数据格式无效"},400);
+    command = env.DB.prepare("UPDATE portfolio_book SET public_json=?, published_at=?, version=version+1 WHERE id=1 AND version=?")
+      .bind(snapshot.length ? JSON.stringify(snapshot) : null,snapshot.length ? now : null,update.version);
+  } else {
+    return reply({error:"请求格式无效"},400);
+  }
+  const result = await command.run();
+  if (!result.meta.changes) return reply({error:"组合已在其他地方更新。请先刷新页面，再提交修改。"},409);
+  return reply({version:update.version+1, time:now});
+}
+
 export default {
-  async fetch(request) {
+  async fetch(request, env, _ctx, ownerSite = false) {
     const url = new URL(request.url);
+    if (["/api/portfolio","/api/portfolio/public"].includes(url.pathname)) {
+      return portfolioRoute(request,env,ownerSite);
+    }
     if (!url.pathname.endsWith("/api/market")) return new Response("Not found", {status: 404});
     const headers = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store", "Content-Type": "application/json"};
     if (request.method !== "GET") return Response.json({error: "method"}, {status: 405, headers});

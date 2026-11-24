@@ -100,3 +100,75 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
   .market-number small {font-size:.59rem}
   .work-page input[type="search"] {width:min(100%,13.5rem)}
 }
+.public-portfolio {margin-bottom:.65rem}
+.quote-switch {display:flex;align-items:center;gap:.18rem;white-space:nowrap}
+.quote-switch input {accent-color:var(--accent)}
+
+/* Market geography */
+.globe-panel {margin-bottom:.6rem}
+.globe-map {position:relative;height:clamp(300px,29vw,375px);isolation:isolate}
+.globe-base,.globe-points,.globe-regions {position:absolute;inset:0;width:100%;height:100%}
+.globe-points path {fill:none;stroke:var(--chart-guide);stroke-opacity:.54;stroke-width:1.05}
+.globe-points circle {fill:currentColor;stroke:var(--page);stroke-width:1.5;color:var(--chart-guide)}
+.globe-points circle.up {color:var(--up)}
+.globe-points circle.down {color:var(--down)}
+.globe-card {
+  position:absolute;left:var(--map-x);top:var(--map-y);width:17.2%;padding:.28rem .38rem;
+  background:var(--page);border:1px solid var(--line);border-radius:6px;font-size:.69rem
+}
+.globe-card.globe-north {width:23%}
+.globe-region-name {display:block;font-size:.65rem;font-weight:700;color:var(--muted);padding-bottom:.08rem}
+.globe-reading {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.25rem;align-items:baseline}
+.globe-reading span {overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.globe-reading strong {font-weight:620;font-variant-numeric:tabular-nums;white-space:nowrap}
+.globe-holdings {border-top:1px solid var(--line);margin-top:.16rem;padding-top:.13rem}
+.globe-holdings>span,.globe-holdings>a {font-size:.62rem;color:var(--muted)}
+.globe-north .globe-holding-rows {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:.4rem}
+.world-layout #watch-rows .market-line {border-bottom:1px solid var(--line)}
+.world-layout #watch-rows .market-line:last-child {border-bottom:0}
+.world-layout #watch-rows {display:grid;grid-template-columns:1fr;gap:.24rem}
+
+@media(max-width:740px) {
+  .globe-map {height:auto}
+  .globe-base,.globe-points {height:clamp(120px,33vw,226px)}
+  .globe-points path {display:none}
+  .globe-regions {position:relative;height:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.32rem;
+    padding-top:calc(clamp(120px,33vw,226px) + .18rem)}
+  .globe-card,.globe-card.globe-north {position:static;width:auto;min-width:0}
+  .globe-north .globe-holding-rows {grid-template-columns:1fr}
+}
+
+/* Portfolio allocations */
+.allocation-layout {display:grid;grid-template-columns:minmax(145px,.74fr) minmax(0,1.45fr);gap:.45rem;align-items:center}
+.allocation-chart {position:relative;width:100%;max-width:220px;aspect-ratio:1;justify-self:center}
+.allocation-chart svg {display:block;width:100%;height:100%;overflow:visible}
+.allocation-chart circle {fill:none;cursor:pointer;stroke-width:14}
+.allocation-chart .allocation-inner circle {stroke-width:16}
+.allocation-chart .allocation-active {stroke-opacity:1;stroke-width:18}
+.allocation-chart .allocation-inner .allocation-active {stroke-width:19}
+.allocation-center {position:absolute;inset:32%;display:grid;justify-items:center;align-content:center;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none}
+.allocation-center span {font-size:.66rem;color:var(--muted);white-space:nowrap}
+.allocation-center strong {font-size:clamp(.75rem,1.25vw,1.1rem);font-weight:700}
+.allocation-center small {color:var(--muted);font-size:.62rem}
+.allocation-center b {font-size:.68rem}
+.allocation-row {display:grid;grid-template-columns:minmax(3.2rem,1.12fr) minmax(2.4rem,.62fr) minmax(2.7rem,.68fr) minmax(3rem,.8fr);
+  align-items:center;gap:.27rem;width:100%;text-align:right;padding:.22rem .12rem;background:none;border:0;border-bottom:1px solid var(--line);font-size:.71rem;font-variant-numeric:tabular-nums}
+.allocation-row>span {white-space:nowrap}
+.allocation-row>span:first-child {text-align:left}
+.allocation-head {font-size:.67rem;color:var(--muted);font-weight:650}
+.allocation-label {display:flex;align-items:center;gap:.25rem;min-width:0}
+.allocation-label>span {min-width:0}
+.allocation-label b {display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis}
+.allocation-label small {display:block;color:var(--muted);font-size:.61rem;overflow:hidden;text-overflow:ellipsis}
+.allocation-label i {flex:none;width:.51rem;height:.51rem;border-radius:50%}
+.allocation-legend {max-height:190px;overflow:auto}
+.allocation-legend button:hover,.allocation-legend button[aria-pressed="true"] {background:var(--subtle)}
+.allocation-note {margin-bottom:0}
+@media(max-width:1030px) and (min-width:781px) {
+  .allocation-layout {grid-template-columns:minmax(103px,.65fr) minmax(0,1.4fr)}
+}
+@media(max-width:440px) {
+  .allocation-layout {grid-template-columns:minmax(0,1fr)}
+  .allocation-chart {max-width:150px}
+  .allocation-legend {max-height:173px}
+}

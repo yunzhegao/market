@@ -12,6 +12,11 @@ let orders = [];
 let editor;
 let demo = false;
 let persistenceWarning = "";
+let databaseVersion = null;
+let pendingSave = false;
+let portfolioQuotes = {};
+let quotesLoading = false;
+let livePortfolio = localRead("market-observation-live-prices",true);
 const formatter = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"});
 const editorDialog = by("portfolio-dialog");
 
@@ -44,13 +49,117 @@ function table(element, headers, rows, empty = "暂无数据") {
   by(element).innerHTML = head+'<tbody>'+body+'</tbody>';
 }
 
-function writePortfolio(next) {
+async function updateDatabase(mode, fields = {}) {
+  if (pendingSave) throw new Error("上一项修改正在保存");
+  pendingSave = true;
+  try {
+    const response = await fetch("./api/portfolio",{
+      method:"PUT",headers:{"Content-Type":"application/json"},cache:"no-store",
+      body:JSON.stringify({mode,version:databaseVersion,...fields}),signal:AbortSignal.timeout(12000),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "数据库保存失败");
+    databaseVersion = data.version;
+    return data;
+  } finally {pendingSave=false;}
+}
+
+async function writePortfolio(next) {
+  if (databaseVersion !== null) await updateDatabase("save",{portfolio:next});
   portfolio = next;
   demo = false;
   const saved = localWrite(storageKeys.portfolio,next);
-  persistenceWarning = saved ? "" : "浏览器未允许本地保存。可用「导出备份」保留修改。";
+  persistenceWarning = saved || databaseVersion !== null ? "" : "浏览器未允许本地保存。可用「导出备份」保留修改。";
   if (saved) window.dispatchEvent(new Event(portfolioEvent));
 }
+
+function portfolioRowsNow() {
+  if (!livePortfolio || demo) return portfolio.positions;
+  return portfolio.positions.map(row=>{
+    const quote = portfolioQuotes[row.symbol];
+    if (row.kind === "cash" || !(quote?.price > 0) || quote.currency !== row.currency) return row;
+    return {...row,price:quote.price,previous:quote.previous > 0 ? quote.previous : null};
+  });
+}
+
+async function refreshPortfolioQuotes() {
+  if (quotesLoading || !livePortfolio || demo) return;
+  const symbols = portfolio.positions.filter(row=>row.quantity>0 && row.kind!=="cash").map(row=>row.symbol);
+  if (!symbols.length) return;
+  quotesLoading = true;
+  try {
+    const quotes = await latestMarketQuotes(symbols);
+    for (const [key,quote] of Object.entries(quotes)) {
+      if (!(portfolioQuotes[key]?.time > quote.time)) portfolioQuotes[key] = quote;
+    }
+    draw();
+  } finally {quotesLoading=false;}
+}
+
+function downloadJson(filename, data) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = url;
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function publicPositions() {
+  const rates = effectiveRates(autoRates,portfolio.rates);
+  const report = analyze(portfolioRowsNow(),portfolio,rates);
+  if (!report.nav || report.validCount!==report.values.length) return [];
+  return mergeAssets(report.values).filter(row=>row.kind!=="cash" && row.marketValue>=0).map(row=>({
+    symbol:row.symbol,kind:row.kind,name:row.name,weight:Number(navWeight(row.marketValue,report.nav).toFixed(2)),
+  })).sort((a,b)=>b.weight-a.weight);
+}
+
+function displayPublicRows(tableId, rows) {
+  table(tableId,["证券","类别","占组合"],rows.map(row=>[
+    td("<strong>"+esc(row.symbol)+"</strong> "+esc(row.name)),td(esc(assetKinds[row.kind])),td(ratio(row.weight)),
+  ]),"暂无可展示的持仓。请检查价格或汇率是否齐全。");
+}
+
+async function publicSnapshot() {
+  const options = {cache:"no-store",signal:AbortSignal.timeout(8000)};
+  for (const url of ["./api/portfolio/public","./portfolio-public.json"]) {
+    try {
+      const response = await fetch(url,options);
+      if (!response.ok) continue;
+      const data = await response.json();
+      if (!Array.isArray(data.positions)) continue;
+      by("portfolio-public-view").hidden = !data.positions.length;
+      if (data.positions.length) {
+        displayPublicRows("public-holdings",data.positions);
+        by("published-time").textContent = data.publishedAt ? "发布 "+timeAt(Date.parse(data.publishedAt),"Asia/Shanghai",true)+" 北京" : "";
+      }
+      return;
+    } catch {}
+  }
+}
+
+async function openDatabase() {
+  try {
+    const response = await fetch("./api/portfolio",{cache:"no-store",signal:AbortSignal.timeout(8000)});
+    if (!response.ok) return;
+    const data = await response.json();
+    if (!Number.isSafeInteger(data.version)) return;
+    if (data.portfolio) {
+      portfolio = normalizePortfolio(data.portfolio);
+      demo = false;
+      by("base-currency").value = portfolio.base;
+      localWrite(storageKeys.portfolio,portfolio);
+      refreshPortfolioQuotes();
+    }
+    databaseVersion = data.version;
+    drawOrders();
+    draw();
+  } catch {}
+}
+
+const cashTotal = cash => cash ? cash.book+cash.equivalent : null;
+const cashBreakdown = cash => cash ? "账面现金 "+money(cash.book)+" · 现金替代 "+money(cash.equivalent) : "—";
+const usableCash = cash => cash ? "可直接用 "+money(cash.available)+" · 可出售 "+money(cash.saleable) : "";
 
 function showStats(report) {
   const amount = (title, value, detail, sign = false) =>
@@ -62,7 +171,7 @@ function showStats(report) {
     amount("当日盈亏",report.daily,(fnum(ret)?pctText(ret)+" · ":"")+"已归因 "+report.accountedCount+" 项",true),
     amount("汇率影响",report.fxImpact,"基于已完成归因的持仓",true),
     amount("未实现盈亏",report.unrealized,"有成本 "+report.unrealizedCount+" 项",true),
-    amount("可用现金",report.cash,"现金替代资产 "+money(report.reserve)),
+    amount("现金",cashTotal(report.cashAssets),cashBreakdown(report.cashAssets)),
   ].join("");
 }
 
@@ -71,16 +180,18 @@ function showHoldings(report) {
   const key = by("holdings-sort").value === "impact" ? "totalImpact" : "marketValue";
   rows.sort((a,b)=>(b[key] ?? -Infinity)-(a[key] ?? -Infinity));
   const cells = rows.map(row=>[
-    td('<strong>'+esc(row.kind==="cash"?row.currency+" 现金":row.symbol)+'</strong>'+(row.name?'<small>'+esc(row.name)+'</small>':"")+'<small>'+esc(row.accounts.join(" / "))+'</small>'),
+    td('<strong>'+esc(row.kind==="cash"?row.currency+" 现金":row.symbol)+'</strong>'+(row.name?'<small>'+esc(row.name)+'</small>':"")+'<small>'+esc((cashClass(row)==="equivalent"?"现金替代 · ":cashClass(row)==="book"?"账面现金 · ":"")+row.accounts.join(" / "))+'</small>'),
     td(esc(row.roles.join(" / "))),
     td(fmt(row.quantity,4)+" "+esc(row.kind==="cash"?row.currency:"")),
+    td(row.kind==="cash" ? "—" : money(row.price) + (livePortfolio && !demo && portfolioQuotes[row.symbol]?.currency===row.currency
+      ? '<small>'+esc(quoteStamp(portfolioQuotes[row.symbol]))+'</small>' : '<small>手动价</small>')),
     td(money(row.marketValue)+(row.incomplete?'<small>有待补数据</small>':"")),
     td(ratio(navWeight(row.marketValue,report.nav))),
     td(signedMoney(row.totalImpact)),
     td(signedMoney(row.priceImpact)),
     td(signedMoney(row.fxImpact)),
   ]);
-  table("holdings-table",["持仓","组合角色","数量","市值","占比","今日贡献","价格","汇率"],cells,"请添加持仓");
+  table("holdings-table",["持仓","组合角色","数量","本币现价","市值","占比","今日贡献","价格","汇率"],cells,"请添加持仓");
   by("account-total").innerHTML = [...report.accounts].map(([name,total])=>'<span>'+esc(name)+' <strong>'+money(total)+'</strong></span>').join("");
 }
 
@@ -113,15 +224,18 @@ function compare(before,after) {
     ["最大直接个股权重",before.concentration,after?.concentration,ratio,before.largest,after?.largest],
     ["前五大直接个股",before.topFive,after?.topFive,ratio],
     ["重叠敞口（已知）",before.overlap,after?.overlap,ratio],
-    ["可用现金",before.cash,after?.cash,money],
-    ["可售现金替代",before.reserve,after?.reserve,money],
-    ["现金与可售替代合计",fnum(before.cash)?before.cash+before.reserve:null,fnum(after?.cash)?after.cash+after.reserve:null,money],
   ];
-  table("simulation-table",["比较指标","操作前","操作后","变化"],rows.map(([label,a,b,format,left,right])=>[
+  const metrics = rows.map(([label,a,b,format,left,right])=>[
     td(esc(label)),td((left?'<small>'+esc(left)+'</small>':"")+format(a)),
     td((right?'<small>'+esc(right)+'</small>':"")+format(b)),
     td(fnum(a)&&fnum(b)?(format===ratio?plus(b-a)+" pp":signedMoney(b-a)):"—"),
-  ]));
+  ]);
+  const beforeCash = before.cashAssets, afterCash = after?.cashAssets;
+  const cashCell = cash => td(money(cashTotal(cash))+(cash
+    ? '<small>'+esc(cashBreakdown(cash))+'</small><small>'+esc(usableCash(cash))+'</small>' : ""));
+  metrics.push([td("现金"),cashCell(beforeCash),cashCell(afterCash),
+    td(beforeCash&&afterCash ? signedMoney(cashTotal(afterCash)-cashTotal(beforeCash)) : "—")]);
+  table("simulation-table",["比较指标","操作前","操作后","变化"],metrics);
 }
 
 function compareExposure(before,after) {
@@ -146,7 +260,7 @@ function compareExposure(before,after) {
 }
 
 function showSimulation(report,rates) {
-  const outcome = orders.length ? simulate(portfolio.positions,orders) : null;
+  const outcome = orders.length ? simulate(portfolioRowsNow(),orders) : null;
   const after = outcome?.positions ? analyze(outcome.positions,portfolio,rates) : null;
   const error = outcome?.errors.join(" ");
   by("simulation-error").textContent = error || "";
@@ -162,11 +276,14 @@ function showSimulation(report,rates) {
 
 function draw() {
   const rates = effectiveRates(autoRates,portfolio.rates);
-  const report = analyze(portfolio.positions,portfolio,rates);
+  const report = analyze(portfolioRowsNow(),portfolio,rates);
   by("portfolio-empty").hidden = Boolean(report.values.length);
   by("portfolio-results").hidden = !report.values.length;
   const status = [
-    demo ? "演示数据" : portfolio.date ? "持仓价格日期 "+portfolio.date : "持仓与账户仅保存在此浏览器",
+    demo ? "演示数据" : databaseVersion !== null ? "持仓已接入数据库" : "本机持仓",
+    livePortfolio && !demo && report.values.some(row=>row.kind!=="cash")
+      ? report.values.filter(row=>row.kind!=="cash"&&portfolioQuotes[row.symbol]?.currency===row.currency).length+" 项使用在线报价"
+      : portfolio.date ? "手动价格日期 "+portfolio.date : "",
     fxInfo || "正在获取汇率",
     persistenceWarning,
   ];
@@ -174,8 +291,9 @@ function draw() {
   const overrides = Object.keys(portfolio.rates).length;
   if (overrides) status.push(overrides+" 个币种使用手动汇率");
   by("portfolio-status").textContent = status.filter(Boolean).join(" · ");
+  by("public-portfolio").hidden = demo || !report.values.length;
   if (report.values.length) {
-    showStats(report); showHoldings(report); showAttribution(report); showExposure(report); showSimulation(report,rates);
+    showStats(report); renderAllocation(report,portfolio.base); showHoldings(report); showAttribution(report); showExposure(report); showSimulation(report,rates);
   }
 }
 
@@ -225,7 +343,7 @@ by("trade-list").addEventListener("input",event=>{
   const name = event.target.dataset.orderField;
   if (!name) return;
   orders[Number(event.target.closest("[data-order]").dataset.order)][name] = event.target.value;
-  showSimulation(analyze(portfolio.positions,portfolio,effectiveRates(autoRates,portfolio.rates)),effectiveRates(autoRates,portfolio.rates));
+  showSimulation(analyze(portfolioRowsNow(),portfolio,effectiveRates(autoRates,portfolio.rates)),effectiveRates(autoRates,portfolio.rates));
 });
 by("add-trade").addEventListener("click",()=>{
   const account = portfolio.positions[0]?.account || "";
@@ -307,7 +425,7 @@ by("editor-add").addEventListener("click",()=>{
   renderEditor();
   by("editor-content").querySelector("tbody tr:last-child input")?.focus();
 });
-by("editor-form").addEventListener("submit",event=>{
+by("editor-form").addEventListener("submit",async event=>{
   event.preventDefault();
   try {
     const {mode,rows,date} = editor;
@@ -315,22 +433,17 @@ by("editor-form").addEventListener("submit",event=>{
     draft[mode] = mode==="rates" ? Object.fromEntries(rows.map(row=>[row.currency,row])) : rows;
     if (mode==="positions") draft.date=date;
     const next = normalizePortfolio(draft);
-    writePortfolio(next);
+    await writePortfolio(next);
     if (mode==="positions") orders = [];
     editorDialog.close();
     drawOrders();
     draw();
-    if (mode==="positions") loadRates();
+    if (mode==="positions") {loadRates();refreshPortfolioQuotes();}
   } catch (error) {by("editor-error").textContent = error.message;}
 });
 
 function exportPortfolio() {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(portfolio,null,2)],{type:"application/json"}));
-  const link = document.createElement("a");
-  link.download = "Market-Portfolio.json";
-  link.href = url;
-  link.click();
-  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  downloadJson("Market-Portfolio.json",portfolio);
 }
 
 by("import-portfolio").addEventListener("change",async event=>{
@@ -339,13 +452,14 @@ by("import-portfolio").addEventListener("change",async event=>{
   try {
     if (file.size>1024*1024) throw new Error("持仓备份应小于 1 MB");
     const imported = normalizePortfolio(JSON.parse(await file.text()));
-    writePortfolio(imported);
+    await writePortfolio(imported);
     orders = [];
     by("base-currency").value = portfolio.base;
     if (editorDialog.open) editorDialog.close();
     drawOrders();
     draw();
     loadRates();
+    refreshPortfolioQuotes();
   } catch(error) {
     if (editorDialog.open) by("editor-error").textContent = error.message;
     else by("portfolio-status").textContent = "导入失败 · "+error.message;
@@ -369,7 +483,7 @@ async function referenceRates(date) {
 
 async function loadRates() {
   const request = ++fxRequest;
-  const date = portfolio.date && portfolio.date<formatter.format(Date.now()) ? portfolio.date : "";
+  const date = !livePortfolio && portfolio.date && portfolio.date<formatter.format(Date.now()) ? portfolio.date : "";
   if (activeFxDate!==date) autoRates={};
   activeFxDate=date;
   by("refresh").disabled = true;
@@ -410,10 +524,13 @@ for (const [button,mode] of [["edit-portfolio","positions"],["edit-exposure","we
 for (const id of ["editor-import","import-first"]) by(id).addEventListener("click",()=>by("import-portfolio").click());
 by("editor-export").addEventListener("click",exportPortfolio);
 by("base-currency").innerHTML = currencyOptions(portfolio.base);
-by("base-currency").addEventListener("change",event=>{
+by("base-currency").addEventListener("change",async event=>{
   const next = {...portfolio,base:event.target.value};
   if (demo) portfolio = next;
-  else writePortfolio(next);
+  else try {await writePortfolio(next);} catch(error) {
+    event.target.value = portfolio.base;
+    persistenceWarning = error.message;
+  }
   draw();
 });
 by("sample-portfolio").addEventListener("click",()=>{
@@ -425,8 +542,44 @@ by("sample-portfolio").addEventListener("click",()=>{
   loadRates();
 });
 by("holdings-sort").addEventListener("change",draw);
-by("refresh").addEventListener("click",loadRates);
+by("live-portfolio").checked = livePortfolio;
+by("live-portfolio").addEventListener("change",event=>{
+  livePortfolio = event.target.checked;
+  localWrite("market-observation-live-prices",livePortfolio);
+  draw();
+  loadRates();
+  refreshPortfolioQuotes();
+});
+const publicDialog = by("public-dialog");
+by("public-portfolio").addEventListener("click",()=>{
+  const rows = publicPositions();
+  displayPublicRows("public-draft",rows);
+  by("public-error").textContent = "";
+  by("publish-portfolio").hidden = databaseVersion===null;
+  by("unpublish-portfolio").hidden = databaseVersion===null;
+  by("publish-portfolio").disabled = !rows.length;
+  by("export-public").disabled = !rows.length;
+  publicDialog.showModal();
+});
+by("export-public").addEventListener("click",()=>{
+  const positions = publicPositions();
+  if (positions.length) downloadJson("portfolio-public.json",{positions,publishedAt:new Date().toISOString()});
+});
+for (const [id,mode] of [["publish-portfolio","publish"],["unpublish-portfolio","unpublish"]]) {
+  by(id).addEventListener("click",async()=>{
+    try {
+      await updateDatabase(mode,{positions:mode==="publish"?publicPositions():[]});
+      await publicSnapshot();
+      publicDialog.close();
+    } catch(error) {by("public-error").textContent=error.message;}
+  });
+}
+const refreshLivePortfolio = ()=>{loadRates();refreshPortfolioQuotes();};
+by("refresh").addEventListener("click",refreshLivePortfolio);
 drawOrders();
 draw();
-loadRates();
-setInterval(()=>{if(!document.hidden)loadRates();},120000);
+refreshLivePortfolio();
+openDatabase();
+publicSnapshot();
+setInterval(()=>{if(!document.hidden)refreshLivePortfolio();},60000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshLivePortfolio();});

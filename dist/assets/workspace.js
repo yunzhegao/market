@@ -41,6 +41,27 @@ async function requestMarket(scope, parameters = {}) {
   return response.json();
 }
 
+async function latestMarketQuotes(symbols) {
+  const unique = [...new Set(symbols)].filter(symbol => tickerPattern.test(symbol));
+  const quoteBatch = async i => {
+    const batch = unique.slice(i,i+8);
+    const data = await requestMarket("world",{symbols:batch.join(",")});
+    return Object.entries(data.quotes || {}).filter(([symbol,row]) =>
+      batch.includes(symbol) && row && fnum(row.price) && fnum(row.time));
+  };
+  const batches = Array.from({length:Math.ceil(unique.length/8)},(_,i)=>i*8);
+  const results = await Promise.allSettled(batches.map(quoteBatch));
+  return Object.fromEntries(results.flatMap(result=>result.status==="fulfilled"?result.value:[]));
+}
+
+const sessionNames = {pre:"盘前",regular:"盘中/收盘",post:"盘后"};
+function quoteStamp(quote) {
+  const zone = quote.timezone || "UTC";
+  const zoneName = {"America/New_York":"美东","Asia/Singapore":"新加坡","Asia/Hong_Kong":"香港"}[zone] || zone;
+  const time = timeAt(quote.time,zone) + " " + zoneName;
+  return [time,sessionNames[quote.session],quote.delayMinutes ? "延迟 "+quote.delayMinutes+" 分钟" : ""].filter(Boolean).join(" · ");
+}
+
 function markRequest(time = Date.now()) {
   const node = by("sync-time");
   node.hidden = false;

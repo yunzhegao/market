@@ -150,6 +150,11 @@ function mergeAssets(values) {
   });
 }
 
+function cashClass(row) {
+  if (row.kind === "cash") return "book";
+  return row.bucket === "reserve" ? "equivalent" : null;
+}
+
 function analyze(positions, state, rates) {
   const values = valueAssets(positions,state.base,rates);
   const valid = values.filter(row => numeric(row.marketValue));
@@ -157,8 +162,6 @@ function analyze(positions, state, rates) {
   const accounted = values.filter(row => numeric(row.totalImpact));
   const individual = new Map(), exposure = new Map();
   const equityFunds = valid.filter(row => row.kind === "etf" && ["core","tech","bank","equity"].includes(row.bucket));
-  const domesticCash = valid.filter(row => row.kind === "cash" && row.available);
-  const liquid = valid.filter(row => row.kind !== "cash" && row.bucket === "reserve" && row.available);
   const entry = key => {
     if (!exposure.has(key)) exposure.set(key,{symbol:key,direct:0,indirect:0,funds:new Map()});
     return exposure.get(key);
@@ -180,13 +183,19 @@ function analyze(positions, state, rates) {
   const underlying = [...exposure.values()].map(row => ({...row,total:row.direct+row.indirect})).sort((a,b)=>b.total-a.total);
   const holdings = [...individual.entries()].sort((a,b)=>b[1]-a[1]);
   const accounts = new Map();
-  for (const row of valid) accounts.set(row.account,(accounts.get(row.account) ?? 0)+row.marketValue);
+  const cashAssets = {book:0,equivalent:0,available:0,saleable:0};
+  for (const row of valid) {
+    accounts.set(row.account,(accounts.get(row.account) ?? 0)+row.marketValue);
+    const type = cashClass(row);
+    if (!type) continue;
+    cashAssets[type] += row.marketValue;
+    if (row.available) cashAssets[type==="book" ? "available" : "saleable"] += row.marketValue;
+  }
   return {values, nav, validCount:valid.length, accountedCount:accounted.length,
     daily:sum(accounted,"totalImpact"), prior:sum(accounted,"previousValue"),
     priceImpact:sum(accounted,"priceImpact"), fxImpact:sum(accounted,"fxImpact"), unrealized:sum(valid,"unrealized"),
     unrealizedCount:valid.filter(row => numeric(row.unrealized)).length,
-    cash:valid.length ? sum(domesticCash,"marketValue") ?? 0 : null,
-    reserve:valid.length ? sum(liquid,"marketValue") ?? 0 : null,
+    cashAssets:valid.length ? cashAssets : null,
     concentration:nav > 0 ? ((holdings[0]?.[1] ?? 0)/nav)*100 : null,
     largest:holdings[0]?.[0],
     topFive:nav > 0 ? holdings.slice(0,5).reduce((a,row)=>a+row[1],0)/nav*100 : null,
