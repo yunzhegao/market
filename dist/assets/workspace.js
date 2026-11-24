@@ -62,11 +62,12 @@ async function latestMarketQuotes(symbols) {
 }
 
 const sessionNames = {pre:"盘前",regular:"盘中/收盘",post:"盘后"};
+const marketZoneLabel = zone => ({"America/New_York":"美东","Asia/Singapore":"新加坡","Asia/Hong_Kong":"香港",
+  "Asia/Shanghai":"中国内地","Asia/Tokyo":"日本","Europe/London":"伦敦","America/Toronto":"多伦多"})[zone] || zone;
 function quoteStamp(quote) {
   if (quote.observationDate) return quote.observationDate + " · 当地收盘";
   const zone = quote.timezone || "UTC";
-  const zoneName = {"America/New_York":"美东","Asia/Singapore":"新加坡","Asia/Hong_Kong":"香港"}[zone] || zone;
-  const time = timeAt(quote.time,zone) + " " + zoneName;
+  const time = timeAt(quote.time,zone) + " " + marketZoneLabel(zone);
   return [time,sessionNames[quote.session],quote.delayMinutes ? "延迟 "+quote.delayMinutes+" 分钟" : ""].filter(Boolean).join(" · ");
 }
 

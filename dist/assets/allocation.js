@@ -71,7 +71,7 @@ function chooseAllocation(key) {
   }
   by("allocation-note").textContent = partial
     ? "该组涨跌按有完整前收和汇率的持仓计算。内圈为分类，外圈为持仓。"
-    : "内圈为分类，外圈为持仓。涨跌和日贡献按 "+allocationCurrency+" 计算，含汇率影响。";
+    : "内圈为分类，外圈为持仓。涨跌和变动贡献按 "+allocationCurrency+" 计算，含汇率影响。";
 }
 
 function showAllocationLegend() {

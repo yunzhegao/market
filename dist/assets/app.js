@@ -115,6 +115,11 @@ function markMeta(id, data, suffix = "") {
   target.title = date ? date + (data.timestamp ? " · " + beijingTime.format(new Date(data.timestamp)) + " 北京时间" : "") : "";
 }
 
+function observationFallback(key, date) {
+  if (state.sourceChecks[key] !== "failed") return "";
+  return date ? "沿用 " + shortDate(date) + " 数据" : "暂无数据";
+}
+
 function chip(id, label, tone = "") {
   htmlText(id, label);
   byId(id).dataset.tone = tone;
@@ -716,6 +721,9 @@ function renderSignals() {
   chip("credit-band", !finite(widening) ? "暂无变化" : widening > .5 ? "利差扩大" : widening < -.5 ? "利差收窄" : "利差持平", widening > .5 ? "warm" : "");
   markMeta("credit-meta", credit, finite(recent) ? "近 5 点 " + signed(recent, 0, " bp") : "");
   setAge(byId("credit-age"), last(credit.rows)?.[0]);
+  const creditFallback = byId("credit-fallback");
+  creditFallback.textContent = observationFallback("OAS", last(credit.rows)?.[0]);
+  creditFallback.hidden = !creditFallback.textContent;
   spark("credit-spark", credit.rows, "高收益债利差 · bp", n => decimal(n * 100, 0) + " bp", "var(--warm)");
   metricList("credit-rows", ["HYG", "JNK", "KRE"], last(credit.rows)?.[0]);
 
@@ -737,7 +745,10 @@ function renderMarketRows(id, labels) {
     const stamp = live ? quoteTime(live) : shortDate(date);
     const observed = observedAt(date, live?.time);
     const age = observed ? '<small class="data-age" data-observed="' + observed + '">' + dataAge(observed) + '</small>' : "";
-    return '<button class="cross-row indicator-trigger" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span class="cross-name"><b>' + title + '</b><span class="cross-time"><small>' + stamp + '</small>' + age + '</span></span><strong>' + decimal(current) + (finite(current) ? unit : "") + '</strong><span class="' + direction(value) + '">' + (key === "DGS10" ? signed(value, 0, " bp") : percentage(value)) + '</span></button>';
+    const fallback = key === "DGS10" ? observationFallback(key, date) : "";
+    const timing = fallback ? '<small class="observation-fallback" title="' + (date || "") + '">' + fallback + '</small>'
+      : '<small>' + stamp + '</small>' + age;
+    return '<button class="cross-row indicator-trigger" type="button" data-indicator="' + key + '" aria-haspopup="dialog"><span class="cross-name"><b>' + title + '</b><span class="cross-time">' + timing + '</span></span><strong>' + decimal(current) + (finite(current) ? unit : "") + '</strong><span class="' + direction(value) + '">' + (key === "DGS10" ? signed(value, 0, " bp") : percentage(value)) + '</span></button>';
   }).join("");
   updateMetricButtons(id, markup);
 }
@@ -833,6 +844,7 @@ async function refresh(forceContext = false) {
   if (button.disabled) return;
   button.disabled = true;
   state.checkedAt = new Date().toISOString();
+  renderStatus();
   try {
     const requests = Object.entries(scopes).map(async ([scope, keys]) => {
       const checks = await readScope(scope).catch(() => Object.fromEntries(keys.map(key => [key, "failed"])));

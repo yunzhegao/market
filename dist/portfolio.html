@@ -83,26 +83,26 @@
             <div class="allocation-layout">
               <div class="allocation-chart" id="allocation-chart" aria-label="外圈是持仓，内圈是分类"></div>
               <div class="allocation-key">
-                <div class="allocation-row allocation-head"><span>分类／持仓</span><span>权重</span><span>日涨跌</span><span>日贡献</span></div>
+                <div class="allocation-row allocation-head"><span>分类／持仓</span><span>权重</span><span>涨跌</span><span>变动贡献</span></div>
                 <div id="allocation-legend" class="allocation-legend"></div>
               </div>
             </div>
-            <p class="work-note allocation-note" id="allocation-note">内圈为分类，外圈为持仓。涨跌和日贡献按显示币种计算，含汇率影响。</p>
+            <p class="work-note allocation-note" id="allocation-note">内圈为分类，外圈为持仓。涨跌和变动贡献按显示币种计算，含汇率影响。</p>
           </section>
           <section class="panel work-panel" aria-labelledby="holdings-title">
-            <div class="section-line"><h2 id="holdings-title">合并持仓与今日贡献</h2><div class="page-tools"><label for="holdings-sort" class="visually-hidden">持仓排序</label><select id="holdings-sort"><option value="value">按市值</option><option value="impact">按盈亏贡献</option></select></div></div>
+            <div class="section-line"><h2 id="holdings-title">合并持仓与变动贡献</h2><div class="page-tools"><label for="holdings-sort" class="visually-hidden">持仓排序</label><select id="holdings-sort"><option value="value">按市值</option><option value="impact">按变动贡献</option></select></div></div>
             <div class="work-table-wrap"><table class="work-table" id="holdings-table"></table></div>
             <div id="account-total" class="account-totals"></div>
           </section>
           <section class="panel work-panel" aria-labelledby="exposure-title">
-            <div class="section-line"><h2 id="exposure-title">穿透与重叠敞口</h2><button type="button" id="edit-exposure" class="text-button">编辑 ETF 成分权重</button></div>
+            <div class="section-line"><div class="exposure-heading"><h2 id="exposure-title">穿透与重叠敞口</h2><span id="lookthrough-coverage" class="coverage-label"></span></div><button type="button" id="edit-exposure" class="text-button">编辑 ETF 成分权重</button></div>
             <div class="work-table-wrap"><table class="work-table" id="lookthrough-table"></table></div>
             <p class="work-note" id="lookthrough-note"></p>
           </section>
         </div>
         <div class="work-stack">
           <section class="panel work-panel" aria-labelledby="returns-title">
-            <div class="section-line"><h2 id="returns-title">今天涨亏在哪</h2><span id="pnl-label"></span></div>
+            <div class="section-line"><h2 id="returns-title">行情变动归因</h2><span id="pnl-label"></span></div>
             <div class="impact-grid" id="portfolio-attribution"></div>
           </section>
           <section class="panel work-panel" aria-labelledby="simulation-title">
@@ -125,7 +125,7 @@
       </div>
     </div>
     <details class="work-method"><summary>组合计算口径</summary>
-      <p>自动行情开启时，市值使用最新可得报价和当期汇率。关闭自动行情后，使用手动价格。盘前和盘后价格按最近可得报价显示。今日价格贡献＝数量 × 价格变动 × 当期汇率。汇率贡献＝数量 × 前收 × 汇率变动。两项相加等于按当前持仓数量计算的市值变动。交易流水、股息、转账和税费未纳入日归因。</p>
+      <p>自动行情开启时，市值使用最新可得报价和当期汇率。关闭自动行情后，使用手动价格。行情变动以各自市场的前收为基准。价格贡献＝数量 × 价格变动 × 当期汇率。汇率贡献＝数量 × 前收 × 汇率变动。两项相加等于按当前持仓数量计算的市值变动。交易流水、股息、转账和税费未纳入归因。</p>
       <p>未实现盈亏按录入的本币平均成本和当期汇率估算。ETF 只穿透已录入成分，直接和间接权重使用组合净值作分母。手动汇率可覆盖自动报价，缺价格或汇率的记录标记为缺项。</p>
     </details>
   </main>

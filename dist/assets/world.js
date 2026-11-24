@@ -6,7 +6,8 @@ const worldRegions = [
   ["east","日韩与台湾",["JP","KR","TW"]],
   ["china","中国内地与香港",["CN","HK","MO"]],
   ["latin","拉美",["MX","BR","AR","CL","PE","CO"]],
-  ["south","南亚与东南亚",["SG","IN","ID","SA","MY","TH","VN","PH"]],
+  ["south","南亚与东南亚",["SG","IN","ID","MY","TH","VN","PH"]],
+  ["middle-east","中东",["SA","IL"]],
   ["africa","非洲",["ZA","EG"]],
   ["russia","俄罗斯",["RU"]],
   ["oceania","大洋洲",["AU","NZ"]],
@@ -58,12 +59,30 @@ const countriesByZone = {
 const portfolioOnly = new Set(["USD","SGD","HKD","EUR","JPY","CNY","CNH","BOXX","SGOV","BIL","SHV","USFR","TFLO","TLT","IEF","SHY","BND","AGG","GLDM","GLD","IAU","SLV","DXY","DX-Y.NYB","BTC-USD","ETH-USD"]);
 const nonEquityBuckets = new Set(["cash","reserve","gold","duration"]);
 const indexRows = venues.flatMap(([country,city,,,indices])=>indices.map(([symbol,name,label])=>({symbol,name,label:label??name,country,city})));
+const indexColumns = [[],[]];
+const columnLengths = [0,0];
+for (const [id,name,countries] of worldRegions) {
+  const rows=indexRows.filter(row=>countries.includes(row.country));
+  if (!rows.length) continue;
+  const column=columnLengths[0]<=columnLengths[1]?0:1;
+  indexColumns[column].push({id,name,rows});
+  columnLengths[column]+=rows.length+1;
+}
 const overviewSymbols = [
   "^GSPC","^IXIC","^FTSE","^GDAXI","000001.SS","^HSI","^N225","^KS11","^STI","^NSEI","^AXJO","^BVSP","^J203.JO","^CASE30","IMOEX",
 ];
 const overviewIndices = overviewSymbols.map(symbol=>indexRows.find(row=>row.symbol===symbol));
+const crossGroups = [
+  ["指数期货",[["ES=F","标普 500 期货"],["NQ=F","纳指 100 期货"]]],
+  ["商品",[["GC=F","黄金期货"],["CL=F","WTI 原油期货"]]],
+  ["外汇",[["DX-Y.NYB","美元指数"],["USDCNH=X","美元／离岸人民币"]]],
+  ["美国国债收益率",[["DGS2","2 年期"],["DGS10","10 年期"]]],
+];
+const crossSymbols = crossGroups.slice(0,-1).flatMap(([,rows])=>rows.map(([symbol])=>symbol));
+const treasurySymbols = new Set(crossGroups.at(-1)[1].map(([symbol])=>symbol));
 const regionNames = new Intl.DisplayNames(["zh-CN"],{type:"region"});
 const quotes = {...window.WORLD_SNAPSHOT?.quotes};
+const yields = {...window.WORLD_SNAPSHOT?.yields};
 const fresh = new Set();
 const adrReferences = new Map();
 let resolvingAdr = false;
@@ -103,8 +122,20 @@ function moveOf(reading) {
   return Math.abs(value)<.005 ? 0 : value;
 }
 
+function quoteIsStale(reading) {
+  const stamp=reading?.time ?? Date.parse(reading?.observationDate);
+  return fnum(stamp) && Date.now()-stamp>fourDays;
+}
+
+function changeLabel(reading, move, unit="%") {
+  if (quoteIsStale(reading)) return "报价过期";
+  return unit==="bp" && fnum(move) ? plus(move,0)+" bp" : pctText(move);
+}
+
 function sourceUrl(symbol) {
   if (symbol==="IMOEX") return quotes[symbol]?.source==="investing" ? "https://www.investing.com/indices/mcx-historical-data" : "https://www.moex.com/en/index/IMOEX";
+  if (treasurySymbols.has(symbol)) return yields[symbol]?.source==="treasury"
+    ? "https://home.treasury.gov/resource-center/data-chart-center/interest-rates" : "https://fred.stlouisfed.org/series/"+symbol;
   return "https://finance.yahoo.com/quote/"+encodeURIComponent(symbol)+"/";}
 
 function displaySymbol(symbol) {return symbol.replaceAll("^","");}
@@ -175,11 +206,13 @@ function layoutGlobeLabels() {
 function panelQuoteLink(name,symbol,kind="") {
   const reading=quotes[symbol];
   const move=moveOf(reading);
+  const stale=quoteIsStale(reading);
   const source=reading?quoteStamp(reading)+(fresh.has(symbol)?"":" · 最近可用"):"暂无在线报价";
   return '<a'+(kind==='holding'?' class="globe-adr-link"':'')+' href="'+sourceUrl(symbol)
     +'" target="_blank" rel="noopener noreferrer" title="'+esc(source)+'">'
-    +'<span>'+esc(kind==='holding'?"持有 ADR":name)+'<small>'+esc(displaySymbol(symbol))+(kind==='ADR'?' · ADR':'')+'</small></span>'
-    +'<strong class="'+tone(move)+'">'+pctText(move)+'</strong></a>';
+    +'<span>'+esc(kind==='holding'?"持有 ADR":name)+'<small>'+esc(displaySymbol(symbol))+(kind==='ADR'?' · ADR':'')+'</small>'
+    +(reading?'<small class="globe-quote-detail">'+esc(fmt(reading.price)+" · "+quoteStamp(reading))+'</small>':"")+'</span>'
+    +'<strong class="'+(stale?'market-stale':tone(move))+'">'+changeLabel(reading,move)+'</strong></a>';
 }
 
 function marketPanelRows(title,rows,country) {
@@ -311,10 +344,13 @@ function renderGlobe(holdings) {
   for (const row of holdings) for (const market of row.adrMarkets) countries.add(market.country);
   for (const [country,path] of mapAreas) path.classList.toggle("globe-market-area",countries.has(country));
   for (const {symbol,name,button,value} of mapMarkers) {
-    const move=moveOf(quotes[symbol]);
-    const change=pctText(move);
-    button.classList.toggle("up",move>0);
-    button.classList.toggle("down",move<0);
+    const reading=quotes[symbol];
+    const move=moveOf(reading);
+    const stale=quoteIsStale(reading);
+    const change=changeLabel(reading,move);
+    button.classList.toggle("up",!stale&&move>0);
+    button.classList.toggle("down",!stale&&move<0);
+    button.classList.toggle("market-stale",stale);
     button.setAttribute("aria-label",[button.dataset.city,name,change,"查看当地指数与持仓"].join(" · "));
     value.textContent=change;
   }
@@ -340,17 +376,51 @@ function marketRow({symbol,name,held,localPrice,isAdr,adrMarkets=[]}) {
   const reading=quotes[symbol];
   const move=moveOf(reading);
   const time=reading?(reading.observationDate?.slice(5).replace("-","/")??timeAt(reading.time,reading.timezone)):fnum(localPrice)?"手动价":"暂无报价";
-  const stale=fnum(reading?.time)&&Date.now()-reading.time>fourDays;
+  const stale=quoteIsStale(reading);
   const source=reading?quoteStamp(reading):time;
-  const status=reading?(stale?" · 报价超过四天":!fresh.has(symbol)?" · 快照":""):"";
+  const status=reading?(stale?" · 报价过期":!fresh.has(symbol)?" · 最近可用":""):"";
   const markets=adrMarkets.length?" · 原股 "+adrMarkets.map(market=>countryName(market.country)).join(" / "):"";
   return '<a class="market-line" href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer" title="'+esc(name+" "+displaySymbol(symbol)+" · "+source+status+markets)+'">'
     +'<div class="market-name"><span>'+esc(name)+'</span><small>'+esc(displaySymbol(symbol))+(isAdr?' · ADR':held?' · 持仓':'')
     +(sessionNames[reading?.session]?' · '+sessionNames[reading.session]:reading?.delayMinutes?' · 延迟':'')+esc(markets)+'</small></div>'
-    +marketSpark(reading?.spark,tone(move))
+    +marketSpark(stale?null:reading?.spark,tone(move))
     +'<div class="market-number"><strong>'+fmt(reading?.price??localPrice)+'</strong></div>'
-    +'<div class="market-number"><strong class="'+tone(move)+'">'+pctText(move)+'</strong><small class="'+(stale?'market-stale':'')+'">'
+    +'<div class="market-number"><strong class="'+(stale?'market-stale':tone(move))+'">'+changeLabel(reading,move)+'</strong><small>'
     +esc(time)+'</small></div></a>';
+}
+
+function latestYield(symbol) {
+  const rows=yields[symbol]?.rows;
+  const current=rows?.at(-1);
+  return current ? {observationDate:current[0],price:current[1],previous:rows.at(-2)?.[1]} : null;
+}
+
+function crossQuote([symbol,name]) {
+  const isYield=treasurySymbols.has(symbol);
+  const reading=isYield?latestYield(symbol):quotes[symbol];
+  const move=isYield?Math.round((reading?.price-reading?.previous)*100):moveOf(reading);
+  const price=fmt(reading?.price,symbol==="USDCNH=X"?4:2)+(isYield&&reading?"%":"");
+  const stamp=reading?(isYield?reading.observationDate:quoteStamp(reading)):"暂无报价";
+  const change=changeLabel(reading,move,isYield?"bp":"%");
+  return '<a class="world-cross-quote" href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer">'
+    +'<span>'+esc(name)+'</span><strong>'+price+'</strong><small>'+esc(stamp)+'</small>'
+    +'<b class="'+(quoteIsStale(reading)?'market-stale':tone(move))+'">'+change+'</b></a>';
+}
+
+async function refreshYields() {
+  try {
+    const {observations}=await requestMarket("world-yields");
+    let updates=0;
+    for (const symbol of treasurySymbols) {
+      const reading=observations?.[symbol];
+      const latest=Array.isArray(reading?.rows)&&reading.rows.at(-1);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(latest?.[0]||"")||!fnum(latest[1])
+        ||latest[0]<(latestYield(symbol)?.observationDate||"")) continue;
+      yields[symbol]=reading;
+      if (!quoteIsStale(latestYield(symbol))) updates++;
+    }
+    return updates;
+  } catch {return 0;}
 }
 
 function regionMarkup(id,label,rows) {
@@ -376,13 +446,21 @@ function holdingRegionsMarkup(holdings) {
   return [...regions].map(([id,{name,rows}])=>regionMarkup("held-region-"+id,name,rows)).join("");
 }
 
+function renderIndexRegions() {
+  const columns=indexColumns.map(regions=>regions.map(({id,name,rows})=>
+    regionMarkup("world-region-"+id,name,rows.filter(matches))).join(""));
+  by("regions").innerHTML=columns.some(Boolean)
+    ? columns.map(content=>'<div class="index-column">'+content+'</div>').join("")
+    : '<p class="work-note">没有符合条件的指数</p>';
+}
+
 function renderWorld() {
   const holdings=heldRows();
   renderGlobe(holdings);
+  by("world-cross-quotes").innerHTML=crossGroups.map(([name,rows])=>
+    '<section><h3>'+esc(name)+'</h3>'+rows.map(crossQuote).join("")+'</section>').join("");
   by("overview-indices").innerHTML=overviewIndices.map(marketRow).join("");
-  by("regions").innerHTML=worldRegions.map(([id,name,countries])=>
-    regionMarkup("world-region-"+id,name,indexRows.filter(row=>countries.includes(row.country)&&matches(row)))).join("")
-    || '<p class="work-note">没有符合条件的指数</p>';
+  renderIndexRegions();
   by("watch-rows").innerHTML=holdingRegionsMarkup(holdings.filter(matches))
     || '<p class="work-note">没有符合条件的股票持仓</p>';
   by("watch-help").hidden=holdings.length>0||!!by("ticker-filter").value;
@@ -429,20 +507,23 @@ async function refreshWorld() {
   const holdings=heldRows();
   refreshAdrReferences(holdings);
   const locals=holdings.flatMap(row=>row.adrMarkets.filter(market=>mapAreas.has(market.country)).map(market=>market.symbol));
-  const symbols=[...new Set(indexRows.concat(holdings).map(row=>row.symbol).concat(locals))];
+  const symbols=[...new Set(indexRows.concat(holdings).map(row=>row.symbol).concat(locals,crossSymbols))];
+  const total=symbols.length+treasurySymbols.size;
   try {
-    const readings=await latestMarketQuotes(symbols);
-    let refreshed=0;
+    const [readings,yieldCount]=await Promise.all([latestMarketQuotes(symbols),refreshYields()]);
+    let refreshed=yieldCount;
+    fresh.clear();
     for (const [symbol,reading] of Object.entries(readings)) {
-      if (!(quotes[symbol]?.time>reading.time)) quotes[symbol]=reading;
-      if (Date.now()-quotes[symbol].time>fourDays) continue;
+      if (quotes[symbol]?.time>reading.time) continue;
+      quotes[symbol]=reading;
+      if (quoteIsStale(reading)) continue;
       fresh.add(symbol);
       refreshed++;
     }
     renderWorld();
     if (refreshed) markRequest();
-    by("world-status").textContent=refreshed===symbols.length ? "最新可得行情 · 报价可能延迟"
-      : "已核对 "+refreshed+" / "+symbols.length+" 项。其余保留最后可用报价。";
+    by("world-status").textContent=refreshed===total ? "最新可得行情 · 报价可能延迟"
+      : "已核对 "+refreshed+" / "+total+" 项 · 其余显示最近可用报价或缺项";
   } finally {
     waiting=false;
     by("refresh").disabled=false;

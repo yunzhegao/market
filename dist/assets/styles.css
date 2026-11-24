@@ -328,6 +328,7 @@ dialog::backdrop {background:#15213265}
 .metric-timing .data-age {font-size:.68rem}
 .cross-time {display:inline-flex;flex-wrap:wrap;align-items:baseline}
 .cross-time small {color:var(--muted)}
+.observation-fallback,.cross-time .observation-fallback {color:var(--warm);font-size:.75rem;font-weight:650;white-space:nowrap}
 #sync-status {border:1px solid var(--line);border-radius:7px;padding:.32rem .55rem}
 @media (max-width:480px) {
   .cross-name .cross-time {grid-column:1/-1;grid-row:2}

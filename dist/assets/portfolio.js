@@ -76,12 +76,16 @@ async function writePortfolio(next) {
   if (saved) window.dispatchEvent(new Event(portfolioEvent));
 }
 
+function portfolioQuote(row) {
+  if (!livePortfolio || demo || row.kind === "cash") return null;
+  const quote = portfolioQuotes[row.symbol];
+  return quote?.price > 0 && quote.currency === row.currency ? quote : null;
+}
+
 function portfolioRowsNow() {
-  if (!livePortfolio || demo) return portfolio.positions;
   return portfolio.positions.map(row=>{
-    const quote = portfolioQuotes[row.symbol];
-    if (row.kind === "cash" || !(quote?.price > 0) || quote.currency !== row.currency) return row;
-    return {...row,price:quote.price,previous:quote.previous > 0 ? quote.previous : null};
+    const quote = portfolioQuote(row);
+    return quote ? {...row,price:quote.price,previous:quote.previous > 0 ? quote.previous : null} : row;
   });
 }
 
@@ -164,17 +168,73 @@ const cashTotal = cash => cash ? cash.book+cash.equivalent : null;
 const cashBreakdown = cash => cash ? "账面现金 "+money(cash.book)+" · 现金替代 "+money(cash.equivalent) : "—";
 const usableCash = cash => cash ? "可直接用 "+money(cash.available)+" · 可出售 "+money(cash.saleable) : "";
 
+function attributionTimes(report) {
+  const markets = new Map();
+  const fxCurrencies = new Set();
+  let manualPrices = false;
+  for (const row of report.values.filter(row=>fnum(row.totalImpact))) {
+    if (row.kind !== "cash") {
+      const quote = portfolioQuote(row);
+      if (quote) {
+        const zone = quote.timezone || "UTC";
+        if (!markets.has(zone)) markets.set(zone,[]);
+        markets.get(zone).push(quote);
+      } else manualPrices = true;
+    }
+    if (row.currency !== portfolio.base) {
+      fxCurrencies.add(portfolio.base);
+      fxCurrencies.add(row.currency);
+    }
+  }
+  const labels = [...markets].map(([zone,quotes])=>{
+    const times = quotes.map(quote=>quote.time);
+    const first = timeAt(Math.min(...times),zone);
+    const last = timeAt(Math.max(...times),zone);
+    const sessions = new Set(quotes.map(quote=>{
+      if (quote.session === "pre" || quote.session === "post") return sessionNames[quote.session];
+      if (fnum(quote.sessionEnd) && Math.abs(quote.time-quote.sessionEnd)<=60000) return "收盘";
+      if (quote.session === "regular" || (quote.time>=quote.sessionStart && quote.time<quote.sessionEnd)) return "盘中";
+      return "";
+    }));
+    const session = sessions.size===1 ? [...sessions][0] : "";
+    return marketZoneLabel(zone)+" "+first+(last===first?"":"–"+last)+(session?" "+session:"");
+  });
+  if (manualPrices) labels.push(demo?"示例价格":portfolio.date?"手动价 "+portfolio.date:"手动价 · 日期未填写");
+
+  const fxTimes = new Map();
+  for (const currency of fxCurrencies) {
+    if (currency === "USD") continue;
+    const manual = portfolio.rates[currency];
+    const rate = autoRates[currency];
+    const autoStamp = fnum(rate?.time) ? timeAt(rate.time)+" 北京" : rate?.date || "时间未知";
+    const stamp = fnum(manual?.now) ? "手动" : autoStamp;
+    if (!fxTimes.has(stamp)) fxTimes.set(stamp,[]);
+    fxTimes.get(stamp).push(currency);
+  }
+  for (const [stamp,currencies] of fxTimes) {
+    labels.push("汇率 USD/"+currencies.join("、USD/")+" · "+stamp);
+  }
+  return labels;
+}
+
 function showStats(report) {
   const amount = (title, value, detail, sign = false) =>
     '<div class="panel portfolio-kpi"><span>'+esc(title)+'</span><strong class="'+(sign?tone(value):"")+'">'+(sign?plus(value):money(value))
       +'</strong><small>'+esc(detail)+'</small></div>';
   const ret = report.prior > 0 && fnum(report.daily) ? report.daily/report.prior*100 : null;
+  const timing = attributionTimes(report).map(label=>'<li>'+esc(label)+'</li>').join("");
+  const cash = report.cashAssets;
   by("portfolio-kpis").innerHTML = [
     amount("组合市值 · "+portfolio.base,report.nav,"已计价 "+report.validCount+"/"+report.values.length+" 项"),
-    amount("当日盈亏",report.daily,(fnum(ret)?pctText(ret)+" · ":"")+"已归因 "+report.accountedCount+" 项",true),
+    '<div class="panel portfolio-kpi portfolio-market-kpi"><span>最新行情变动</span><strong class="'+tone(report.daily)+'">'+plus(report.daily)
+      +'</strong><small>'+(fnum(ret)?pctText(ret)+" · ":"")+"已归因 "+report.accountedCount+" 项</small>"
+      +(timing?'<ul class="portfolio-quote-times" aria-label="各市场与汇率截至时间">'+timing+'</ul>':"")+'</div>',
     amount("汇率影响",report.fxImpact,"基于已完成归因的持仓",true),
     amount("未实现盈亏",report.unrealized,"有成本 "+report.unrealizedCount+" 项",true),
-    amount("现金",cashTotal(report.cashAssets),cashBreakdown(report.cashAssets)),
+    '<div class="panel portfolio-kpi portfolio-cash-kpi"><dl class="portfolio-cash-values">'
+      +'<div><dt>账面现金</dt><dd><strong>'+money(cash?.book)+'</strong></dd>'
+      +(cash&&cash.available!==cash.book?'<dd><small>可直接用 '+money(cash.available)+'</small></dd>':"")+'</div>'
+      +'<div><dt>可卖出现金替代</dt><dd><strong>'+money(cash?.saleable)+'</strong></dd></div></dl></div>',
   ].join("");
 }
 
@@ -182,19 +242,21 @@ function showHoldings(report) {
   const rows = mergeAssets(report.values);
   const key = by("holdings-sort").value === "impact" ? "totalImpact" : "marketValue";
   rows.sort((a,b)=>(b[key] ?? -Infinity)-(a[key] ?? -Infinity));
-  const cells = rows.map(row=>[
-    td('<strong>'+esc(row.kind==="cash"?row.currency+" 现金":row.symbol)+'</strong>'+(row.name?'<small>'+esc(row.name)+'</small>':"")+'<small>'+esc((cashClass(row)==="equivalent"?"现金替代 · ":cashClass(row)==="book"?"账面现金 · ":"")+row.accounts.join(" / "))+'</small>'),
-    td(esc(row.roles.join(" / "))),
-    td(fmt(row.quantity,4)+" "+esc(row.kind==="cash"?row.currency:"")),
-    td(row.kind==="cash" ? "—" : money(row.price) + (livePortfolio && !demo && portfolioQuotes[row.symbol]?.currency===row.currency
-      ? '<small>'+esc(quoteStamp(portfolioQuotes[row.symbol]))+'</small>' : '<small>'+(demo?"示例价":"手动价")+'</small>')),
-    td(money(row.marketValue)+(row.incomplete?'<small>有待补数据</small>':"")),
-    td(ratio(navWeight(row.marketValue,report.nav))),
-    td(signedMoney(row.totalImpact)),
-    td(signedMoney(row.priceImpact)),
-    td(signedMoney(row.fxImpact)),
-  ]);
-  table("holdings-table",["持仓","组合角色","数量","本币现价","市值","占比","今日贡献","价格","汇率"],cells,"请添加持仓");
+  const cells = rows.map(row=>{
+    const quote = portfolioQuote(row);
+    return [
+      td('<strong>'+esc(row.kind==="cash"?row.currency+" 现金":row.symbol)+'</strong>'+(row.name?'<small>'+esc(row.name)+'</small>':"")+'<small>'+esc((cashClass(row)==="equivalent"?"现金替代 · ":cashClass(row)==="book"?"账面现金 · ":"")+row.accounts.join(" / "))+'</small>'),
+      td(esc(row.roles.join(" / "))),
+      td(fmt(row.quantity,4)+" "+esc(row.kind==="cash"?row.currency:"")),
+      td(row.kind==="cash" ? "—" : money(row.price) + '<small>'+esc(quote?quoteStamp(quote):demo?"示例价":"手动价")+'</small>'),
+      td(money(row.marketValue)+(row.incomplete?'<small>有待补数据</small>':"")),
+      td(ratio(navWeight(row.marketValue,report.nav))),
+      td(signedMoney(row.totalImpact)),
+      td(signedMoney(row.priceImpact)),
+      td(signedMoney(row.fxImpact)),
+    ];
+  });
+  table("holdings-table",["持仓","组合角色","数量","本币现价","市值","占比","变动贡献","价格","汇率"],cells,"请添加持仓");
   by("account-total").innerHTML = [...report.accounts].map(([name,total])=>'<span>'+esc(name)+' <strong>'+money(total)+'</strong></span>').join("");
 }
 
@@ -212,13 +274,15 @@ function showAttribution(report) {
 function showExposure(report) {
   const rows = report.underlying.slice().sort((a,b)=>Number(b.direct>0&&b.indirect>0)-Number(a.direct>0&&a.indirect>0)||b.total-a.total);
   table("lookthrough-table",["标的","直接持有","ETF 间接持有","合计敞口","间接来源"],rows.slice(0,15).map(row=>[
-    td(esc(row.symbol)),td(ratio(navWeight(row.direct,report.nav))),td(ratio(navWeight(row.indirect,report.nav))),
+    td(esc(row.symbol)),td(ratio(navWeight(row.direct,report.nav))),
+    td(row.indirect>0?ratio(navWeight(row.indirect,report.nav)):'<small>已录入成分未发现</small>'),
     td('<strong>'+ratio(navWeight(row.total,report.nav))+'</strong>'),td(esc([...row.funds.keys()].join(", ")||"—")),
   ]),"暂无可计算的个股或 ETF 成分");
   const dates = [...new Set(portfolio.weights.map(row=>row.date).filter(Boolean))].sort();
+  by("lookthrough-coverage").textContent = "ETF 成分覆盖 "+ratio(report.coverage);
   by("lookthrough-note").textContent = (fnum(report.coverage)
-    ? "已录入成分覆盖股票型 ETF 市值的 "+ratio(report.coverage)+"。间接敞口按现有数据计算。"
-    : "股票型 ETF 的成分录入后即可计算间接敞口。") + (dates.length ? " 成分日期 "+dates.join("、")+"。" : "");
+    ? "覆盖率按已计价股票型 ETF 市值加权。"
+    : "暂无可计价的股票型 ETF。") + (dates.length ? " 成分日期 "+dates.join("、")+"。" : "");
 }
 
 function compare(before,after) {
@@ -286,7 +350,7 @@ function draw() {
   const status = [
     demo ? "演示数据" : databaseVersion !== null ? "持仓已接入数据库" : "本机持仓",
     livePortfolio && !demo && report.values.some(row=>row.kind!=="cash")
-      ? report.values.filter(row=>row.kind!=="cash"&&portfolioQuotes[row.symbol]?.currency===row.currency).length+" 项使用在线报价"
+      ? report.values.filter(portfolioQuote).length+" 项使用在线报价"
       : portfolio.date ? "手动价格日期 "+portfolio.date : "",
     fxInfo || "正在获取汇率",
     persistenceWarning,
@@ -484,7 +548,7 @@ async function referenceRates(date) {
   const currentDate = dates.at(-1);
   const previousDate = dates.at(-2);
   if (!currentDate) throw new Error("参考汇率日期缺失");
-  return {rates:Object.fromEntries(Object.entries(values.rates[currentDate]).map(([key,value])=>[key,{now:value,prev:values.rates[previousDate]?.[key]}])),
+  return {rates:Object.fromEntries(Object.entries(values.rates[currentDate]).map(([key,value])=>[key,{now:value,prev:values.rates[previousDate]?.[key],date:currentDate}])),
     label:"Frankfurter 日度汇率 "+currentDate+(previousDate?" / "+previousDate:"")};
 }
 
