@@ -69,19 +69,18 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .portfolio-kpi strong {display:block;margin:.14rem 0;font-size:clamp(.88rem,1.65vw,1.3rem);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .portfolio-market-kpi:has(.portfolio-quote-times) {display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.55fr);align-items:start;gap:.65rem}
 .portfolio-quote-times {display:grid;gap:.12rem;min-width:0;margin:0;padding:0 0 0 .65rem;border-left:1px solid var(--line);list-style:none;color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.portfolio-cash-values {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.45rem}
-.portfolio-cash-values div + div {border-left:1px solid var(--line);padding-left:.45rem}
+.portfolio-cash-values {display:grid;gap:.12rem}
+.portfolio-cash-detail {display:flex;justify-content:space-between;align-items:baseline;gap:.35rem}
+.portfolio-cash-detail dd {color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
 .exposure-heading {display:flex;align-items:center;flex-wrap:wrap;gap:.2rem .45rem}
 .coverage-label {color:var(--accent);background:var(--accent-wash);border-radius:4px;padding:.12rem .35rem;font-size:.75rem;white-space:nowrap}
 .nav-history {margin-bottom:.6rem}
+.nav-history-heading,.nav-history-heading .chart-controls {flex-wrap:wrap}
+.nav-history-meta {margin:.22rem 0 .34rem}
 .nav-history-summary {font-weight:650;font-variant-numeric:tabular-nums}
 #nav-history-status:empty {display:none}
-#nav-history-chart svg {display:block;width:100%;height:clamp(90px,14vw,150px);margin-top:.3rem;border-block:1px solid var(--line)}
-.nav-history-line {stroke:var(--chart-line);stroke-width:2}
-.nav-history-line line {vector-effect:non-scaling-stroke}
-#nav-history-chart circle {fill:var(--chart-line)}
-.nav-history-line .nav-estimated {stroke:var(--muted);stroke-dasharray:4 4}
-#nav-history-chart circle.nav-estimated {fill:var(--muted)}
+.nav-history .chart {height:clamp(150px,26dvh,240px)}
+.nav-history .chart-bottom {flex-wrap:wrap;margin-top:.2rem}
 .nav-history-details {margin-top:.2rem}
 .work-table-wrap {overflow:auto}
 .work-table {width:100%;border-collapse:collapse;text-align:right;font-size:.74rem;font-variant-numeric:tabular-nums;white-space:nowrap}

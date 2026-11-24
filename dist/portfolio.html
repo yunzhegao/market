@@ -14,8 +14,10 @@
   <script defer src="./assets/portfolio-model.js"></script>
   <script defer src="./assets/workspace.js"></script>
   <script defer src="./assets/allocation.js"></script>
+  <script defer src="./assets/market-plot.js"></script>
   <script defer src="./assets/portfolio-nav.js"></script>
   <script defer src="./assets/portfolio.js"></script>
+  <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">跳到内容</a>
@@ -72,18 +74,37 @@
     <div id="portfolio-results" hidden>
       <section id="portfolio-kpis" class="portfolio-kpis" aria-label="组合概况"></section>
       <section id="nav-history" class="panel work-panel nav-history" aria-labelledby="nav-history-title" hidden>
-        <div class="section-line"><h2 id="nav-history-title">同一时点净值</h2><span>近 30 天 · 每日 06:00 新加坡时间</span></div>
+        <div class="section-line nav-history-heading">
+          <h2 id="nav-history-title">同一时点净值</h2>
+          <div class="chart-controls">
+            <div class="segments" role="group" aria-label="净值图表区间">
+              <button type="button" data-nav-range="month" aria-pressed="true">1 月</button>
+              <button type="button" data-nav-range="quarter" aria-pressed="false">3 月</button>
+              <button type="button" data-nav-range="half" aria-pressed="false">半年</button>
+              <button type="button" data-nav-range="year" aria-pressed="false">1 年</button>
+              <button type="button" data-nav-range="mtd" aria-pressed="false">本月</button>
+              <button type="button" data-nav-range="ytd" aria-pressed="false">本年</button>
+            </div>
+            <div class="segments" role="group" aria-label="净值图表类型">
+              <button type="button" data-nav-mode="line" aria-pressed="true">折线</button>
+              <button type="button" data-nav-mode="candle" aria-pressed="false">K 线</button>
+            </div>
+          </div>
+        </div>
         <p id="nav-history-status" class="work-note" role="status"></p>
         <div id="nav-history-data" hidden>
-          <p id="nav-history-summary" class="nav-history-summary"></p>
-          <div id="nav-history-chart"></div>
-          <p id="nav-history-dates" class="work-note"></p>
+          <div class="chart-top nav-history-meta">
+            <p id="nav-history-summary" class="nav-history-summary"></p>
+            <div id="nav-history-readout" class="chart-readout" aria-live="polite"></div>
+          </div>
+          <div id="nav-history-chart" class="chart" tabindex="0" role="group" aria-label="组合净值图，使用左右方向键查看估值"></div>
+          <div class="chart-bottom"><span id="nav-history-dates"></span><span id="nav-history-unit"></span></div>
           <details class="work-method nav-history-details">
             <summary>每日估值明细</summary>
             <div class="work-table-wrap"><table class="work-table" id="nav-history-table"></table></div>
           </details>
         </div>
-        <p class="work-note">虚线按首次回算时的持仓和现金估算，实线按估值时点前保存的持仓计算。缺少行情或汇率的日期留空。净值含出入金。</p>
+        <p class="work-note" id="nav-history-method">虚线标记回算。缺少行情或汇率的日期留空。净值含出入金。</p>
       </section>
       <div class="portfolio-layout" id="portfolio-details">
         <div class="work-stack">

@@ -3,8 +3,12 @@
 const legacyNavHoldingsKey = "market-portfolio-valuation-holdings-v1";
 const navPointsKey = "market-portfolio-valuation-points-v1";
 const navDayMs = 86400000;
-const navDisplayDays = 30;
+const navHistoryDays = 367;
+const navArchiveLimit = 1400000;
+const navRangeMonths = {month:1,quarter:3,half:6,year:12};
+const navView = {range:"month",mode:"line",plot:null,selected:null};
 let navBusy = false;
+let navQueued = false;
 const navRequestedAt = new Map();
 let navMessage = "";
 let navStorageError = false;
@@ -13,11 +17,24 @@ const navCutoff = date => Date.parse(date + "T06:00:00+08:00");
 const navDate = at => new Date(at + 8 * 3600000).toISOString().slice(0,10);
 const navFxSymbol = currency => "USD" + currency + "=X";
 const navPriceSources = {hourly:"小时线",close:"日收盘价","fx-reference":"日度参考汇率"};
+const navAxis = new Intl.NumberFormat("zh-CN",{notation:"compact",maximumSignificantDigits:4});
 
 function latestNavCutoff(now) {
   const ready = now - 30*60000;
   const cutoff = navCutoff(navDate(ready));
   return ready >= cutoff ? cutoff : cutoff-navDayMs;
+}
+
+function navRangeDates(range, now) {
+  const to = navDate(latestNavCutoff(now));
+  const today = navDate(now);
+  if (range==="mtd") return {from:today.slice(0,7)+"-01",to};
+  if (range==="ytd") return {from:today.slice(0,4)+"-01-01",to};
+  const [year,month,day] = to.split("-").map(Number);
+  const previousMonth = month-1-navRangeMonths[range];
+  const monthEnd = new Date(Date.UTC(year,previousMonth+1,0)).getUTCDate();
+  const from = navDate(Date.UTC(year,previousMonth,Math.min(day,monthEnd)+1));
+  return {from,to};
 }
 
 function navHoldings(positions) {
@@ -44,7 +61,7 @@ function validNavDate(date) {
 }
 
 function normalizeNavHistory(raw) {
-  if (!Array.isArray(raw?.snapshots) || raw.snapshots.length > navDisplayDays+3) return null;
+  if (!Array.isArray(raw?.snapshots) || raw.snapshots.length > navHistoryDays+3) return null;
   const read = row => {
     if (!/^[0-9a-f]{32}$/.test(row?.id ?? "") || !Array.isArray(row.holdings) || row.holdings.length > 400) return null;
     if (!row.holdings.every(item=>item && Object.hasOwn(assetKinds,item.kind) && currencyValid(item.currency)
@@ -68,7 +85,7 @@ function recordNavHoldings(state, previous = state.navHistory, now = Date.now())
   const schedule = previous?.snapshots ?? [];
   const today = navDate(now);
   const date = now <= navCutoff(today) ? today : navDate(now + navDayMs);
-  const oldest = navDate(latestNavCutoff(now)-(navDisplayDays-1)*navDayMs);
+  const oldest = navDate(latestNavCutoff(now)-(navHistoryDays-1)*navDayMs);
   const anchor = schedule.findLast(row=>row.date<oldest);
   let snapshots = schedule.filter(row=>row.date>=oldest || row===anchor);
   const applicable = snapshots.findLast(row=>row.date<=date);
@@ -76,13 +93,20 @@ function recordNavHoldings(state, previous = state.navHistory, now = Date.now())
     snapshots = [...snapshots.filter(row=>row.date<date),{...navSnapshot(holdings),date},...snapshots.filter(row=>row.date>date)];
   }
   const reference = previous?.reference ?? (holdings.length ? navSnapshot(holdings) : null);
-  return {...state,navHistory:{reference,snapshots}};
+  let remaining = navArchiveLimit-JSON.stringify(reference).length;
+  let keepFrom = snapshots.length;
+  while (keepFrom>0) {
+    remaining -= JSON.stringify(snapshots[keepFrom-1]).length+1;
+    if (remaining<0) break;
+    keepFrom--;
+  }
+  return {...state,navHistory:{reference,snapshots:snapshots.slice(keepFrom)}};
 }
 
 function migrateNavHistory() {
   const rows = localRead(legacyNavHoldingsKey,[]);
   if (!Array.isArray(rows) || !rows.length) return null;
-  const history = normalizeNavHistory({snapshots:rows.slice(-(navDisplayDays+2)).filter(row=>validNavDate(row?.date)
+  const history = normalizeNavHistory({snapshots:rows.slice(-(navHistoryDays+2)).filter(row=>validNavDate(row?.date)
     && Array.isArray(row?.holdings)).map(({date,holdings})=>({...navSnapshot(holdings),date}))});
   if (!history?.snapshots.length) return null;
   const book = localRead(navPointsKey,{});
@@ -140,10 +164,11 @@ function navPoint(date, holdings, base, prices, missing = new Set()) {
   return !incomplete && fnum(total) ? {date,value:total,sources:[...sources]} : null;
 }
 
-function navDays(history, now) {
+function navDays(history, now, range = navView.range) {
   if (!history) return [];
-  const end = latestNavCutoff(now);
-  return Array.from({length:navDisplayDays},(_,i)=>navDate(end-(navDisplayDays-1-i)*navDayMs)).flatMap(date=>{
+  const {from,to} = navRangeDates(range,now);
+  const start = navCutoff(from), end = navCutoff(to);
+  return Array.from({length:Math.max(0,(end-start)/navDayMs+1)},(_,i)=>navDate(start+i*navDayMs)).flatMap(date=>{
     const saved = history.snapshots.findLast(row=>row.date<=date);
     const snapshot = saved ?? history.reference;
     return snapshot ? [{date,holdings:snapshot.holdings,basis:snapshot.id,estimated:!saved}] : [];
@@ -159,10 +184,16 @@ function navSavedPoints(base, days) {
 }
 
 async function refreshNavHistory(state, automatic, isDemo, force = false) {
-  if (isDemo || navBusy) return;
+  if (isDemo) return;
+  if (navBusy) {
+    navQueued ||= force;
+    return;
+  }
   const now = Date.now();
   const base = state.base;
-  const windowDays = navDays(state.navHistory,now);
+  const range = navView.range;
+  const requestKey = base+":"+range;
+  const windowDays = navDays(state.navHistory,now,range);
   const existing = new Set(navSavedPoints(base,windowDays).map(row=>row.date));
   const days = windowDays.filter(row=>!existing.has(row.date));
   if (!automatic || !days.length) {
@@ -174,15 +205,16 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
     navMessage = "历史估值需要行情接口。";
     return renderNavHistory(base,isDemo);
   }
-  if (!force && now-(navRequestedAt.get(base) ?? 0) < 15*60000) return;
+  if (!force && now-(navRequestedAt.get(requestKey) ?? 0) < 15*60000) return;
   navBusy = true;
-  navRequestedAt.set(base,now);
+  navRequestedAt.set(requestKey,now);
   navMessage = "正在补齐每日估值…";
   renderNavHistory(base,isDemo);
   try {
     const prices = new Map();
     const failures = [];
-    const batchSize = 4;
+    const extended = navCutoff(days.at(-1).date)-navCutoff(days[0].date)>31*navDayMs || navCutoff(days[0].date)<now-32*navDayMs;
+    const batchSize = extended ? 2 : 4;
     for (let i=0;i<symbols.length;i+=3*batchSize) {
       const batches = [i,i+batchSize,i+2*batchSize].map(start=>symbols.slice(start,start+batchSize)).filter(batch=>batch.length);
       const results = await Promise.allSettled(batches.map(batch=>requestMarket("valuation",{
@@ -211,7 +243,7 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
       const book = localRead(navPointsKey,{});
       const merged = new Map((book[base] ?? []).map(row=>[row.date,row]));
       for (const row of added) merged.set(row.date,row);
-      book[base] = [...merged.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-navDisplayDays);
+      book[base] = [...merged.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-navHistoryDays);
       navStorageError = !localWrite(navPointsKey,book);
     }
     const incomplete = days.length-added.length;
@@ -219,25 +251,117 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
     const rejectedDates = failures.some(error=>error?.code==="valuation" && error?.status===400);
     const shown = [...missing].slice(0,5).join("、")+(missing.size>5?" 等 "+missing.size+" 项":"");
     navMessage = unavailable ? "当前行情接口未提供历史估值，请更新行情 Worker。"
-      : rejectedDates ? "历史行情接口拒绝了估值日期，请检查设备时间后重试。"
+      : rejectedDates ? (extended ? "此区间需要新版行情 Worker。" : "历史行情接口拒绝了估值日期，请检查设备时间后重试。")
       : !prices.size && failures.length ? "历史行情接口本次请求失败，点击刷新可重试。"
       : incomplete ? incomplete+" 天估值未齐全"+(shown?" · 缺少 "+shown:"") : "";
   } finally {
     navBusy = false;
     renderNavHistory(portfolio.base,demo);
+    if (navQueued) {
+      navQueued = false;
+      refreshNavHistory(portfolio,livePortfolio,demo,true);
+    }
   }
+}
+
+function navPlotRows(rows, candle) {
+  if (!candle) return rows.map(row=>[navCutoff(row.date),row.value,null,null,null,row]);
+  const weeks = [];
+  for (const row of rows) {
+    const at = Date.parse(row.date);
+    const monday = navDate(at-(new Date(at).getUTCDay()+6)%7*navDayMs);
+    let week = weeks.at(-1);
+    if (week?.monday!==monday || week.estimated!==row.estimated) {
+      week = {monday,first:row.date,estimated:row.estimated,rows:[]};
+      weeks.push(week);
+    }
+    week.rows.push(row);
+  }
+  return weeks.map(({first,estimated,rows:group})=>{
+    const last = group.at(-1);
+    const values = group.map(row=>row.value);
+    return [navCutoff(last.date),last.value,values[0],Math.max(...values),Math.min(...values),{date:last.date,first,estimated}];
+  });
+}
+
+function navPointBreak(previous,row) {
+  return previous[5].estimated!==row[5].estimated || row[0]-previous[0]!==navDayMs;
+}
+
+function navDelta(value,before) {
+  const delta = value-before;
+  return plus(delta)+(before>0 ? " ("+pctText(delta/before*100)+")" : "");
+}
+
+function showNavPoint() {
+  plotPoint(navView,by("nav-history-readout"),fmt);
+}
+
+function drawNavPlot(rows, from, to) {
+  const candle = navView.mode==="candle";
+  const target = by("nav-history-chart");
+  const dateLabel = at => navDate(at).slice(5).replace("-","/");
+  navView.plot = drawMarketPlot(target,navPlotRows(rows,candle),{
+    candle,timeDomain:[navCutoff(from),navCutoff(to)],timeLabel:dateLabel,candleSlot:7*navDayMs,
+    axisLabel:row=>dateLabel(row[0]),axisFormat:value=>navAxis.format(value),axisWidth:62,
+    estimated:row=>row[5].estimated,breakLine:navPointBreak,quietCursor:true,
+    pointLabel:row=>{
+      const info = row[5];
+      const period = candle && info.first!==info.date ? info.first+" – "+info.date : info.date;
+      return period+(info.estimated?" · 回算":"");
+    },
+    comparison:(row,previous)=>candle ? row[2] : previous && !navPointBreak(previous,row) ? previous[1] : null,
+    formatDelta:navDelta,
+  });
+  showNavPoint();
+}
+
+function initNavChart() {
+  const chart = by("nav-history-chart");
+  bindPlot(chart,navView,showNavPoint);
+  const bindChoices = field => {
+    const buttons = [...document.querySelectorAll("[data-nav-"+field+"]")];
+    const selectedValue = button=>button.getAttribute("data-nav-"+field);
+    for (const button of buttons) button.addEventListener("click",()=>{
+      const value = selectedValue(button);
+      if (navView[field]===value) return;
+      navView[field] = value;
+      navView.selected = null;
+      for (const option of buttons) option.setAttribute("aria-pressed",String(selectedValue(option)===value));
+      if (field==="range") navMessage = navBusy ? "正在读取每日估值…" : "";
+      renderNavHistory(portfolio.base,demo);
+      if (field==="range") refreshNavHistory(portfolio,livePortfolio,demo,true);
+    });
+  };
+  bindChoices("range");
+  bindChoices("mode");
+  new ResizeObserver(()=>{
+    if (navView.plot && (chart.clientWidth!==navView.plot.width || chart.clientHeight!==navView.plot.height)) {
+      const now = Date.now();
+      const {from,to} = navRangeDates(navView.range,now);
+      drawNavPlot(navSavedPoints(portfolio.base,navDays(portfolio.navHistory,now)),from,to);
+    }
+  }).observe(chart);
 }
 
 function renderNavHistory(base, isDemo) {
   by("nav-history").hidden = isDemo;
   if (isDemo) return;
-  const days = navDays(portfolio.navHistory,Date.now());
+  const now = Date.now();
+  const {from,to} = navRangeDates(navView.range,now);
+  const days = navDays(portfolio.navHistory,now);
   const rows = navSavedPoints(base,days);
-  const first = rows[0], last = rows.at(-1);
+  const last = rows.at(-1);
   by("nav-history-status").textContent = navStorageError ? "浏览器无法保存每日估值。"
-    : navMessage || (!first ? (days.length ? "近 30 天暂无完整估值" : "保存持仓后开始记录") : "");
-  by("nav-history-data").hidden = !first;
-  if (!first) return;
+    : navMessage || (!last ? (portfolio.navHistory ? "此区间暂无完整估值。" : "保存持仓后开始记录。") : "");
+  by("nav-history-data").hidden = !last;
+  const candle = navView.mode==="candle";
+  by("nav-history-method").textContent = (candle ? "浅色 K 线标记回算。周线取各周每日估值的首值、最高值、最低值和末值。"
+    : "虚线标记回算。缺少行情或汇率的日期留空。") + " 净值含出入金。";
+  if (!last) {
+    navView.plot = null;
+    return;
+  }
   const recorded = rows.filter(row=>!row.estimated);
   const period = recorded.length ? recorded : rows;
   let peak = 0, drawdown = 0;
@@ -245,27 +369,14 @@ function renderNavHistory(base, isDemo) {
     peak = Math.max(peak,value);
     if (peak > 0) drawdown = Math.min(drawdown,value/peak-1);
   }
-  const change = period.length>1 && period[0].value>0
-    ? " · "+(recorded.length ? "记录区间" : "回算区间")+"变动 "+pctText((period.at(-1).value/period[0].value-1)*100)
-      +" · 最大回撤 "+pctText(drawdown*100) : "";
-  by("nav-history-summary").textContent = fmt(last.value) + " " + base + (last.estimated ? " · 回算" : "") + change;
-  const values = rows.map(row=>row.value);
-  const floor = Math.min(...values), ceiling = Math.max(...values);
-  const width = 720, height = 135, pad = 10;
-  const span = Math.max(navCutoff(last.date)-navCutoff(first.date),navDayMs);
-  const points = rows.map(row=>({
-    ...row,x:pad + (width-2*pad) * (navCutoff(row.date)-navCutoff(first.date))/span,
-    y:ceiling===floor ? height/2 : height-pad-(height-2*pad)*(row.value-floor)/(ceiling-floor),
-  }));
-  const lines = points.map((point,i)=>{
-    const previous = points[i-1];
-    return previous && previous.estimated===point.estimated && navCutoff(point.date)-navCutoff(previous.date)===navDayMs
-      ? '<line'+(point.estimated?' class="nav-estimated"':'')+' x1="'+previous.x+'" y1="'+previous.y+'" x2="'+point.x+'" y2="'+point.y+'"/>' : "";
-  }).join("");
-  by("nav-history-chart").innerHTML = '<svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none" role="img" aria-label="每日固定时点组合净值">'
-    +'<g class="nav-history-line">'+lines+'</g>'+points.map(({x,y,date,value,estimated})=>
-      '<circle'+(estimated?' class="nav-estimated"':'')+' cx="'+x+'" cy="'+y+'" r="2.7"><title>'+esc(date+" · "+fmt(value)+" "+base+(estimated?" · 回算":" · 持仓记录"))+'</title></circle>').join("")+'</svg>';
-  by("nav-history-dates").textContent = first.date === last.date ? last.date : first.date + " – " + last.date;
+  const opening = period[0].value, closing = period.at(-1).value;
+  const change = period.length>1 ? " · "+(recorded.length ? "记录区间" : "回算区间")+"变动 "
+    +'<span class="'+tone(closing-opening)+'">'+esc(navDelta(closing,opening))+'</span>'
+    +" · 最大回撤 "+esc(pctText(drawdown*100)) : "";
+  by("nav-history-summary").innerHTML = esc(fmt(last.value)+" "+base+(last.estimated?" · 回算":""))+change;
+  drawNavPlot(rows,from,to);
+  by("nav-history-dates").textContent = from===to ? to : from+" – "+to;
+  by("nav-history-unit").textContent = "每日 06:00 新加坡时间 · "+(candle?"周 K 线 · 变动较该周首值":"日净值 · 变动较前一日");
   table("nav-history-table",["估值日","净值 · "+base,"估值依据"],rows.slice().reverse().map(row=>{
     const sources = (row.sources ?? []).filter(source=>Object.hasOwn(navPriceSources,source)).map(source=>navPriceSources[source]);
     return [td(esc(row.date)),td(fmt(row.value)),td((row.estimated?"回算":"持仓记录")+(sources.length?" · 含"+sources.join("、"):""))];

@@ -239,9 +239,9 @@ function showStats(report) {
     amount("汇率影响",report.fxImpact,"基于已完成归因的持仓",true),
     amount("未实现盈亏",report.unrealized,"有成本 "+report.unrealizedCount+" 项",true),
     '<div class="panel portfolio-kpi portfolio-cash-kpi"><dl class="portfolio-cash-values">'
-      +'<div><dt>账面现金</dt><dd><strong>'+money(cash?.book)+'</strong></dd>'
-      +(cash&&cash.available!==cash.book?'<dd><small>可直接用 '+money(cash.available)+'</small></dd>':"")+'</div>'
-      +'<div><dt>可卖出现金替代</dt><dd><strong>'+money(cash?.saleable)+'</strong></dd></div></dl></div>',
+      +'<div><dt>现金及现金替代</dt><dd><strong>'+money(cashTotal(cash))+'</strong></dd></div>'
+      +'<div class="portfolio-cash-detail"><dt>账面现金</dt><dd>'+money(cash?.book)+'</dd></div>'
+      +'<div class="portfolio-cash-detail"><dt>现金替代</dt><dd>'+money(cash?.equivalent)+'</dd></div></dl></div>',
   ].join("");
 }
 
@@ -545,7 +545,7 @@ by("import-portfolio").addEventListener("change",async event=>{
   const [file] = event.target.files;
   if (!file) return;
   try {
-    if (file.size>2*1024*1024) throw new Error("持仓备份应小于 2 MB");
+    if (file.size>5*1024*1024) throw new Error("持仓备份应小于 5 MB");
     const raw = JSON.parse(await file.text());
     const imported = normalizePortfolio(raw);
     if (raw.navHistory != null && !imported.navHistory) throw new Error("备份中的估值持仓记录格式有误");
@@ -684,6 +684,7 @@ const refreshLivePortfolio = (force = false)=>{
   if (navInitialized) refreshNavHistory(portfolio,livePortfolio,demo,force);
 };
 by("refresh").addEventListener("click",()=>refreshLivePortfolio(true));
+initNavChart();
 drawOrders();
 draw();
 refreshLivePortfolio();

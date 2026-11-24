@@ -656,7 +656,7 @@ function valuationCutoffs(from, to, now = Date.now()) {
     return finite(at) && valuationDate(at) === date ? at : NaN;
   };
   const first = parse(from), last = parse(to);
-  if (!finite(first) || !finite(last) || first > last || last > now-30*60000 || first < now-31*dayMs) return [];
+  if (!finite(first) || !finite(last) || first > last || last > now-30*60000 || first < now-368*dayMs) return [];
   return Array.from({length:(last-first)/dayMs+1}, (_,i)=>first+i*dayMs);
 }
 
@@ -698,21 +698,24 @@ function completedValuationBars(chart, cutoffs, barMs) {
 }
 
 async function valuationPrices(symbol, cutoffs) {
-  const bounds = {period1:(cutoffs[0]-valuationMaxAge)/1000, period2:cutoffs.at(-1)/1000};
   const fx = valuationFxCurrency(symbol);
   const [main,alternate] = yahooHosts;
   const attempts = [[symbol,main,"15m",900000],[symbol,alternate,"15m",900000],
     [symbol,main,"60m",3600000],[symbol,alternate,"60m",3600000]];
   if (fx) attempts.push([fx+"=X",main,"60m",3600000]);
-  else attempts.push([symbol,main,"1d",0],[symbol,alternate,"1d",0]);
+  attempts.push([symbol,main,"1d",0]);
+  if (!fx) attempts.push([symbol,alternate,"1d",0]);
+  const recent = Date.now()-35*dayMs;
   const rows = new Map();
   let currency;
   for (const [ticker,host,interval,barMs] of attempts) {
+    const pending = cutoffs.filter(at=>(!barMs || at>=recent) && !rows.has(valuationDate(at)));
+    if (!pending.length) continue;
+    const bounds = {period1:(pending[0]-valuationMaxAge)/1000,period2:pending.at(-1)/1000};
     try {
       const chart = await yahooSymbolChart(ticker,host,interval,bounds);
       const code = chart.meta?.currency;
       if (!code || (fx && code!==fx) || (currency && code!==currency)) continue;
-      const pending = cutoffs.filter(at=>!rows.has(valuationDate(at)));
       for (const row of completedValuationBars(chart,pending,barMs)) {
         rows.set(row[0],row);
         currency = code;
