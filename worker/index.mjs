@@ -410,6 +410,143 @@ function equitySession(meta, stamp) {
   return clock < 570 ? "pre" : clock > 960 ? "post" : "regular";
 }
 
+const adrTicker = /^[A-Z][A-Z0-9.-]{0,14}$/;
+const isinFormat = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/;
+const adrPrograms = new Map();
+const ordinaryListings = new Map();
+const adrReferenceLifetime = 24 * 60 * 60 * 1000;
+const secondaryTradingMarkets = new Set(["GR","GY","SW","MM","AV","SM"]);
+
+// Bloomberg exchange codes in the depositary directory and OpenFIGI.
+// Some venue codes aggregate unlisted foreign trading. Accept those only when the directory identifies the home listing.
+const ordinaryExchanges = {
+  LN:["GB","L"], HK:["HK","HK",4], TT:["TW","TW"], TWO:["TW","TWO"], JP:["JP","T"], JT:["JP","T"],
+  KS:["KR","KS",6], KQ:["KR","KQ",6], CH:["CN","SS",6], CG:["CN","SZ",6], CS:["CN","SZ",6],
+  SP:["SG","SI"], AU:["AU","AX"], NZ:["NZ","NZ"], IN:["IN","NS"], IB:["IN","BO"],
+  IJ:["ID","JK"], MK:["MY","KL"], TB:["TH","BK"], PM:["PH","PS"], VN:["VN","VN"],
+  AB:["SA","SR"], IT:["IL","TA"], SJ:["ZA","JO"], CN:["CA","TO"], CT:["CA","TO"], CV:["CA","V"],
+  MM:["MX","MX"], BZ:["BR","SA"], AR:["AR","BA"], CI:["CL","SN"], PE:["PE","LM"],
+  FP:["FR","PA"], NA:["NL","AS"], BB:["BE","BR"], SW:["CH","SW"], IM:["IT","MI"],
+  SM:["ES","MC"], DC:["DK","CO"], SS:["SE","ST"], NO:["NO","OL"], FH:["FI","HE"],
+  ID:["IE","IR"], AV:["AT","VI"], PL:["PT","LS"], PW:["PL","WA"], GA:["GR","AT"], TI:["TR","IS"],
+  GR:["DE","DE"], GY:["DE","DE"], BH:["BM","BH"],
+};
+
+function ordinaryListing(ticker, venue) {
+  const market = ordinaryExchanges[venue?.split(" ")[0]];
+  if (!market || !/^[A-Z0-9-]{1,14}$/.test(ticker ?? "")) return null;
+  const [country, marketSuffix, digits] = market;
+  const suffix = country==="CN" ? /^6/.test(ticker)?"SS":/^[03]/.test(ticker)?"SZ":"BJ" : marketSuffix;
+  let local = digits && /^\d+$/.test(ticker) ? ticker.padStart(digits,"0") : ticker;
+  // The directory compacts Danish share classes; Yahoo separates the class with a hyphen.
+  if (country==="DK" && /^[A-Z]{4,}[AB]$/.test(local)) local=local.slice(0,-1)+"-"+local.at(-1);
+  return {country,symbol:local+"."+suffix};
+}
+
+function keepAdrReference(cache,key,result) {
+  if (cache.size >= 512) cache.delete(cache.keys().next().value);
+  cache.set(key,{result,savedAt:Date.now()});
+  return result;
+}
+
+async function readAdrProgram(symbol) {
+  const saved = adrPrograms.get(symbol);
+  if (saved && Date.now()-saved.savedAt < adrReferenceLifetime) return saved.result;
+  const factset = new URL("https://citiadr.factsetdigitalsolutions.com/stocks/profile.idms");
+  factset.searchParams.set("SYMBOL_US",symbol);
+  const html = await upstream(factset,"text",{Accept:"text/html"},9500);
+  const cusip = html.match(/pgm_d\.aspx\?[^"\s]*[&]cusip=([A-Z0-9]{9})"/i)?.[1];
+  if (!cusip) {
+    if (!/pgm_d\.aspx\?[^"\s]*[&]cusip="/i.test(html)) throw new Error("DR directory response unavailable");
+    return keepAdrReference(adrPrograms,symbol,null);
+  }
+  const source = new URL("https://depositaryreceipts.citi.com/adr/guides/pgm_d.aspx");
+  source.search = new URLSearchParams({cusip,pageId:"16",subpageID:"104",typeDisplay:"A"}).toString();
+  const details = await upstream(source,"text",{Accept:"text/html"},9500);
+  const field = label => details.match(new RegExp("<td\\b[^>]*>\\s*"+label+"\\s*(?:&nbsp;)?\\s*</td>\\s*<td\\b[^>]*>([^<]*)</td>","i"))?.[1]?.trim();
+  const ticker = field("DR Ticker");
+  if (!ticker) throw new Error("DR program response unavailable");
+  if (ticker.toUpperCase() !== symbol || !/\b(?:ADR|ADS)\b/i.test(field("DR Type") ?? "") || field("Inactive Date")) {
+    return keepAdrReference(adrPrograms,symbol,null);
+  }
+  const isin = field("ORD ISIN");
+  const [ordinary, venue] = (field("ORD Ticker") ?? "").toUpperCase().split(/\s+/);
+  if (!isinFormat.test(isin ?? "") && !ordinaryListing(ordinary,venue)) throw new Error("DR original security unavailable");
+  return keepAdrReference(adrPrograms,symbol,{isin,ordinary,venue,issuer:field("Company Name")?.replace(/&amp;/gi,"&")});
+}
+
+async function lookupOrdinaryIsins(issuers) {
+  const pending = [...issuers.keys()].filter(isin=>Date.now()-(ordinaryListings.get(isin)?.savedAt ?? 0)>=adrReferenceLifetime);
+  if (!pending.length) return ordinaryListings;
+
+  const figi = async () => {
+    const response = await fetch("https://api.openfigi.com/v3/mapping",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(pending.map(idValue=>({idType:"ID_ISIN",idValue,marketSecDes:"Equity"}))),
+      signal:AbortSignal.timeout(7000),
+    });
+    if (!response.ok) throw new Error("OpenFIGI HTTP "+response.status);
+    return response.json();
+  };
+  const yahooSymbols = async query => {
+    const params=new URLSearchParams({q:query,quotesCount:"10",newsCount:"0"});
+    for (const host of yahooHosts) {
+      try {
+        const data=await upstream("https://"+host+"/v1/finance/search?"+params,"json",{},3800);
+        return (data.quotes??[]).filter(row=>row.quoteType==="EQUITY").map(row=>row.symbol);
+      } catch {}
+    }
+    return [];
+  };
+  const yahoo = async isin => {
+    const values=await yahooSymbols(isin).catch(()=>[]);
+    if (values.length) return {values,exact:true};
+    const issuer=issuers.get(isin);
+    return issuer?{values:await yahooSymbols(issuer),exact:false}:null;
+  };
+  const [result, aliases] = await Promise.all([figi().catch(()=>null),gather(pending,yahoo)]);
+  pending.forEach((isin,i)=>{
+    const item=result?.[i];
+    if (Array.isArray(item?.data)) keepAdrReference(ordinaryListings,isin,{rows:item.data,aliases:aliases[isin]});
+    else if (/no identifier found/i.test(item?.warning ?? "")) {
+      keepAdrReference(ordinaryListings,isin,{rows:[],aliases:aliases[isin]});
+    }
+  });
+  return ordinaryListings;
+}
+
+function yahooOrdinarySymbol(symbol,aliases) {
+  // Yahoo inserts punctuation into some share classes, such as the space before a B share.
+  const canonical=value=>value.replace(/[- ]/g,"");
+  const suffix=symbol.slice(symbol.lastIndexOf("."));
+  const sameExchange=[...new Set((aliases?.values??[]).filter(value=>typeof value==="string"&&worldSymbol.test(value)&&value.endsWith(suffix)))];
+  return sameExchange.find(value=>canonical(value)===canonical(symbol))??(aliases?.exact&&sameExchange.length===1?sameExchange[0]:symbol);
+}
+
+async function adrListings(symbols) {
+  const programs = await gather(symbols,async symbol=>({program:await readAdrProgram(symbol)}));
+  const issuers = new Map(Object.values(programs).flatMap(found=>{
+    const program=found?.program;
+    return isinFormat.test(program?.isin??"")?[[program.isin,program.issuer]]:[];
+  }));
+  const matches = await lookupOrdinaryIsins(issuers);
+  return Object.fromEntries(Object.entries(programs).flatMap(([symbol,found])=>{
+    if (!found) return [];
+    if (!found.program) return [[symbol,{isAdr:false,markets:[],complete:true}]];
+    const {isin,ordinary,venue} = found.program;
+    const primary = ordinaryListing(ordinary,venue);
+    const exact = matches.get(isin);
+    const markets = new Map(primary ? [[primary.country,primary]] : []);
+    for (const row of exact?.result.rows ?? []) {
+      if (row.marketSector!=="Equity" || /ADR|GDR|Depositary/i.test(row.securityType ?? "") || secondaryTradingMarkets.has(row.exchCode)) continue;
+      const local=ordinaryListing(row.ticker,row.exchCode);
+      if (local&&!markets.has(local.country)) markets.set(local.country,local);
+    }
+    const listings=[...markets.values()].map(listing=>({...listing,symbol:yahooOrdinarySymbol(listing.symbol,exact?.result.aliases)}));
+    return [[symbol,{isAdr:true,markets:listings,complete:!isinFormat.test(isin ?? "")||Boolean(exact&&Date.now()-exact.savedAt<adrReferenceLifetime)}]];
+  }));
+}
+
 async function worldReading(symbol) {
   const cached = worldCache.get(symbol);
   if (cached && Date.now() - cached.received < 55000) return cached.quote;
@@ -565,6 +702,13 @@ export default {
       }
       const quotes = await gather(symbols, worldReading);
       return Response.json({quotes}, {status: Object.values(quotes).some(Boolean) ? 200 : 503, headers});
+    }
+    if (scope === "adr") {
+      const symbols = [...new Set((url.searchParams.get("symbols") || "").split(","))];
+      if (symbols.length > 8 || !symbols.every(symbol => adrTicker.test(symbol))) {
+        return Response.json({error:"symbols"},{status:400,headers});
+      }
+      return Response.json({listings:await adrListings(symbols)},{headers});
     }
     if (scope === "world-yields") {
       const observations = await worldTreasury();

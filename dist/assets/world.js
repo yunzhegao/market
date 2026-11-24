@@ -1,32 +1,68 @@
 "use strict";
 
 const worldRegions = [
-  {id:"north",name:"北美",location:[-75,41],label:[5,9],pinned:2,leader:["AAPL","苹果"],indices:[["^GSPC","标普 500"],["^IXIC","纳斯达克综合"],["^DJI","道琼斯"],["^RUT","罗素 2000"],["^GSPTSE","加拿大 TSX"],["^MXX","墨西哥 IPC"]]},
-  {id:"europe",name:"欧洲",location:[8,49],label:[39,8],pinned:2,leader:["ASML.AS","阿斯麦"],indices:[["^STOXX50E","欧洲斯托克 50"],["^FTSE","英国富时 100"],["^GDAXI","德国 DAX"],["^FCHI","法国 CAC 40"],["^SSMI","瑞士 SMI"],["^IBEX","西班牙 IBEX"]]},
-  {id:"east",name:"日韩与台湾",location:[137,38],label:[81,7],pinned:2,leader:["7203.T","丰田汽车"],indices:[["^N225","日经 225"],["^KS11","韩国 KOSPI"],["^TWII","台湾加权"]]},
-  {id:"china",name:"中国内地与香港",location:[113,25],label:[58,34],pinned:2,leader:["0700.HK","腾讯"],indices:[["000001.SS","上证综指"],["^HSI","恒生指数"],["399001.SZ","深证成指"],["000300.SS","沪深 300"],["HSTECH.HK","恒生科技"],["^HSCE","恒生国企"]]},
-  {id:"latin",name:"拉美",location:[-51,-15],label:[14,65],pinned:1,leader:["VALE3.SA","淡水河谷"],indices:[["^BVSP","巴西 Bovespa"],["^MERV","阿根廷 MERVAL"]]},
-  {id:"south",name:"南亚与东南亚",location:[103,2],label:[59,64],pinned:1,leader:["D05.SI","星展银行"],indices:[["^STI","新加坡海峡时报"],["^NSEI","印度 Nifty 50"],["^JKSE","印尼雅加达综合"],["^TASI.SR","沙特 Tadawul"]]},
-  {id:"oceania",name:"大洋洲",location:[145,-33],label:[81,67],pinned:1,leader:["BHP.AX","必和必拓"],indices:[["^AXJO","澳洲 ASX 200"],["^NZ50","新西兰 NZX 50"]]},
+  ["north","北美",["US","CA","MX"]],
+  ["europe","欧洲",["GB","DE","FR","CH","ES","IT","NL","BE","SE","NO","DK","FI","AT","IE","PL","PT","GR","IS"]],
+  ["east","日韩与台湾",["JP","KR","TW"]],
+  ["china","中国内地与香港",["CN","HK","MO"]],
+  ["latin","拉美",["BR","AR","CL","PE","CO"]],
+  ["south","南亚与东南亚",["SG","IN","ID","SA","MY","TH","VN","PH"]],
+  ["oceania","大洋洲",["AU","NZ"]],
 ];
 
-const listingSuffixes = {
-  north:["TO","V","NE","MX"],
-  europe:["L","DE","PA","SW","MI","AS","BR","MC","ST","OL","CO","HE","VI","IR","WA","F"],
-  east:["T","KS","KQ","TW","TWO"],
-  china:["HK","SS","SZ","BJ"],
-  latin:["SA","BA","SN","LM","CL"],
-  south:["SI","JK","KL","BK","VN","NS","BO","SR","PS","IS"],
-  oceania:["AX","NZ"],
+// Each venue is pinned at the same projection as the dotted land and country paths.
+const venues = [
+  ["US","纽约",-74.01,40.71,[["^GSPC","标普 500"],["^IXIC","纳斯达克综合"],["^DJI","道琼斯"],["^RUT","罗素 2000"]]],
+  ["GB","伦敦",-.10,51.51,[["^FTSE","富时 100"]]],
+  ["DE","法兰克福",8.68,50.11,[["^GDAXI","德国 DAX"],["^STOXX50E","欧洲斯托克 50"]]],
+  ["JP","东京",139.78,35.68,[["^N225","日经 225"]]],
+  ["CN","上海",121.51,31.23,[["000001.SS","上证指数"],["000300.SS","沪深 300"]]],
+  ["HK","香港",114.16,22.28,[["^HSI","恒生指数"],["HSTECH.HK","恒生科技"],["^HSCE","恒生国企"]]],
+  ["SG","新加坡",103.85,1.28,[["^STI","新加坡海峡时报","新加坡 STI"]]],
+  ["FR","巴黎",2.34,48.87,[["^FCHI","法国 CAC 40","法国 CAC"]]],
+  ["KR","首尔",126.93,37.52,[["^KS11","韩国 KOSPI","韩国 KOSPI"]]],
+  ["AU","悉尼",151.21,-33.87,[["^AXJO","澳洲 ASX 200","ASX 200"]]],
+  ["IN","孟买",72.84,19.06,[["^NSEI","印度 Nifty 50","印度 Nifty"]]],
+  ["BR","圣保罗",-46.63,-23.55,[["^BVSP","巴西 Bovespa","巴西 Bovespa"]]],
+  ["CA","多伦多",-79.38,43.65,[["^GSPTSE","加拿大 TSX"]]],
+  ["MX","墨西哥城",-99.16,19.43,[["^MXX","墨西哥 IPC"]]],
+  ["CH","苏黎世",8.53,47.37,[["^SSMI","瑞士 SMI"]]],
+  ["ES","马德里",-3.69,40.42,[["^IBEX","西班牙 IBEX"]]],
+  ["TW","台北",121.56,25.03,[["^TWII","台湾加权"]]],
+  ["CN","深圳",114.05,22.54,[["399001.SZ","深证成指"]]],
+  ["AR","布宜诺斯艾利斯",-58.37,-34.60,[["^MERV","阿根廷 MERVAL","阿根廷 MERVAL"]]],
+  ["ID","雅加达",106.81,-6.22,[["^JKSE","印尼雅加达综合","印尼综合"]]],
+  ["SA","利雅得",46.68,24.69,[["^TASI.SR","沙特 Tadawul"]]],
+  ["NZ","惠灵顿",174.78,-41.29,[["^NZ50","新西兰 NZX 50","NZX 50"]]],
+];
+
+const listingCountries = {
+  TO:"CA",V:"CA",NE:"CA",MX:"MX",L:"GB",DE:"DE",F:"DE",PA:"FR",SW:"CH",MI:"IT",AS:"NL",BR:"BE",MC:"ES",
+  ST:"SE",OL:"NO",CO:"DK",HE:"FI",VI:"AT",IR:"IE",WA:"PL",LS:"PT",AT:"GR",IS:"TR",
+  T:"JP",KS:"KR",KQ:"KR",TW:"TW",TWO:"TW",HK:"HK",SS:"CN",SZ:"CN",BJ:"CN",
+  SA:"BR",BA:"AR",SN:"CL",LM:"PE",CL:"CO",SI:"SG",JK:"ID",KL:"MY",BK:"TH",VN:"VN",NS:"IN",BO:"IN",
+  SR:"SA",PS:"PH",AX:"AU",NZ:"NZ",TA:"IL",JO:"ZA",
 };
-const defaultWatch = [["SPYM","标普 500 ETF"],["QQQM","纳指 100 ETF"]];
+const countriesByZone = {
+  "America/New_York":"US","America/Chicago":"US","America/Los_Angeles":"US","America/Toronto":"CA","America/Vancouver":"CA",
+  "Europe/London":"GB","Europe/Berlin":"DE","Europe/Paris":"FR","Europe/Zurich":"CH","Europe/Madrid":"ES",
+  "Asia/Singapore":"SG","Asia/Hong_Kong":"HK","Asia/Shanghai":"CN","Asia/Tokyo":"JP","Asia/Seoul":"KR","Asia/Taipei":"TW",
+  "Asia/Kolkata":"IN","Asia/Kuala_Lumpur":"MY","Asia/Bangkok":"TH","Asia/Jakarta":"ID","Asia/Manila":"PH",
+  "Australia/Sydney":"AU","Pacific/Auckland":"NZ",
+};
 const portfolioOnly = new Set(["USD","SGD","HKD","EUR","JPY","CNY","CNH","BOXX","SGOV","BIL","SHV","USFR","TFLO","TLT","IEF","SHY","BND","AGG","GLDM","GLD","IAU","SLV","DXY","DX-Y.NYB","BTC-USD","ETH-USD"]);
 const nonEquityBuckets = new Set(["cash","reserve","gold","duration"]);
-const indexRegions = new Map(worldRegions.flatMap(region=>region.indices.map(([symbol])=>[symbol,region.id])));
+const indexRows = venues.flatMap(([country,city,,,indices])=>indices.map(([symbol,name,label])=>({symbol,name,label:label??name,country,city})));
+const overviewSymbols = [
+  "^GSPC","^IXIC","^FTSE","^GDAXI","000001.SS","^HSI","^N225","^KS11","^STI","^NSEI","^AXJO","^BVSP",
+];
+const overviewIndices = overviewSymbols.map(symbol=>indexRows.find(row=>row.symbol===symbol));
+const regionNames = new Intl.DisplayNames(["zh-CN"],{type:"region"});
 const quotes = {...window.WORLD_SNAPSHOT?.quotes};
 const fresh = new Set();
+const adrReferences = new Map();
+let resolvingAdr = false;
 const fourDays = 4 * 86400000;
-let ownWatch = localRead(storageKeys.watch,null);
 let portfolioRows = localRead(storageKeys.portfolio,{}).positions || [];
 let waiting = false;
 let refreshQueued = false;
@@ -35,35 +71,26 @@ function stockSymbol(symbol) {
   return tickerPattern.test(symbol) && !symbol.includes("=") && !/-(USD|EUR|USDT)$/.test(symbol) && !portfolioOnly.has(symbol);
 }
 
-function listingRegion(symbol, reading) {
-  if (indexRegions.has(symbol)) return indexRegions.get(symbol);
-  const market = symbol.split(".").at(-1);
-  for (const [region,suffixes] of Object.entries(listingSuffixes)) {
-    if (symbol.includes(".") && suffixes.includes(market)) return region;
-  }
-  const zone = reading?.timezone;
-  if (zone?.startsWith("Europe/")) return "europe";
-  if (zone?.startsWith("Pacific/") || zone?.startsWith("Australia/")) return "oceania";
-  if (zone?.startsWith("Asia/")) return "other";
-  return !symbol.includes(".") || /^[A-Z]{1,6}\.[A-Z]$/.test(symbol) ? "north" : "other";
+function listingCountry(symbol, reading) {
+  const parsed = symbol.includes(".") ? listingCountries[symbol.split(".").at(-1)] : null;
+  return parsed ?? countriesByZone[reading?.timezone]
+    ?? (!symbol.includes(".") || /^[A-Z]{1,6}\.[A-Z]$/.test(symbol) ? "US" : null);
 }
 
-function watchRows() {
-  const hidden = new Set(portfolioRows.filter(row=>row.kind==="cash"||nonEquityBuckets.has(row.bucket)).map(row=>row.symbol));
+function countryName(country) {
+  return ({CN:"中国内地",HK:"香港",TW:"台湾"})[country] ?? regionNames.of(country);
+}
+
+function heldRows() {
   const rows = new Map();
-  for (const item of portfolioRows) {
-    const {symbol,name,kind,bucket,quantity} = item;
+  for (const {symbol,name,kind,bucket,quantity,price} of portfolioRows) {
     if (!["stock","etf"].includes(kind) || nonEquityBuckets.has(bucket) || !(quantity > 0) || !stockSymbol(symbol)) continue;
-    rows.set(symbol,{symbol,name:name || symbol,held:true,localPrice:fnum(item.price)?item.price:null});
-  }
-  for (const [symbol,name] of ownWatch ?? (rows.size ? [] : defaultWatch)) {
-    if (stockSymbol(symbol) && !hidden.has(symbol) && !rows.has(symbol)) rows.set(symbol,{symbol,name,held:false});
+    const country=listingCountry(symbol,quotes[symbol]);
+    const adr=adrReferences.get(symbol);
+    rows.set(symbol,{symbol,name:name || symbol,kind,country,held:true,localPrice:fnum(price)?price:null,
+      isAdr:adr?.isAdr ?? false, adrMarkets:adr?.markets ?? []});
   }
   return [...rows.values()];
-}
-
-function projectMarket([lon,lat]) {
-  return [500+2.6*lon*(.68+.32*Math.cos(lat*Math.PI/180)),195-1.91*lat];
 }
 
 function moveOf(reading) {
@@ -73,50 +100,203 @@ function moveOf(reading) {
 
 function sourceUrl(symbol) {return "https://finance.yahoo.com/quote/"+encodeURIComponent(symbol)+"/";}
 
-function globeReading({symbol,name,held}) {
-  const quote=quotes[symbol];
-  const move=moveOf(quote);
-  const status=quote ? quoteStamp(quote)+(fresh.has(symbol)?"":" · 快照") : "暂无报价";
-  return '<a class="globe-reading" href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer" title="'
-    +esc(name+" · "+symbol+" · "+status)+'"><span>'+esc(held?symbol:name)+'</span><strong class="'+tone(move)+'">'+pctText(move)+'</strong></a>';
+function displaySymbol(symbol) {return symbol.replaceAll("^","");}
+
+const globe = by("globe-map");
+const globePins = by("globe-pins");
+const globeAreas = by("globe-areas");
+const globePopup = by("globe-popup");
+let activeMarket = null;
+let marketPinned = false;
+let hideMarketTimer;
+
+function globePoint(lon,lat) {
+  return [500+lon*2.76*(.77+.23*Math.cos(lat*Math.PI/180)),218-2.39*lat];
 }
 
-function byListing(watch,id) {
-  return watch.filter(row=>listingRegion(row.symbol,quotes[row.symbol])===id&&matches(row));
+const mapMarkers = venues.map(([country,city,lon,lat,indices])=>{
+  const [symbol,name,short] = indices[0];
+  const [x,y] = globePoint(lon,lat);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "globe-pin";
+  button.dataset.country = country;
+  button.dataset.city = city;
+  button.setAttribute("aria-controls","globe-popup");
+  button.setAttribute("aria-expanded","false");
+  button.style.left=x/10+"%";
+  button.style.top=y/3.9+"%";
+  button.innerHTML='<i aria-hidden="true"></i><span class="globe-label" aria-hidden="true"><span>'+esc(short??name)
+    +'</span><strong></strong></span>';
+  globePins.append(button);
+  return {button,x,y,symbol,name,label:button.querySelector(".globe-label"),value:button.querySelector("strong")};
+});
+
+const mapAreas = new Map(Object.entries(worldCountryPaths).map(([country,d])=>{
+  const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+  path.dataset.country=country;
+  path.setAttribute("d",d);
+  globeAreas.append(path);
+  return [country,path];
+}));
+
+function layoutGlobeLabels() {
+  const width=globe.clientWidth, height=globe.clientHeight;
+  if (!width||!height) return;
+  const points=mapMarkers.map(({x,y})=>[x*width/1000,y*height/390]);
+  const placed=points.map(([x,y])=>({left:x-5,top:y-5,right:x+5,bottom:y+5}));
+  mapMarkers.forEach(({label},i)=>{
+    const [x,y]=points[i];
+    label.hidden=false;
+    const w=label.offsetWidth, h=label.offsetHeight, gap=8;
+    const candidates=[[gap,-h/2],[-w-gap,-h/2],[-w/2,-h-gap],[-w/2,gap],
+      [gap,-h-gap],[-w-gap,-h-gap],[gap,gap],[-w-gap,gap]];
+    const offset=candidates.find(([dx,dy])=>{
+      const l=x+dx,t=y+dy,r=l+w,b=t+h;
+      return l>=0&&t>=0&&r<=width&&b<=height&&placed.every(p=>r+3<=p.left||l>=p.right+3||b+2<=p.top||t>=p.bottom+2);
+    });
+    if (!offset) {label.hidden=true;return;}
+    const [dx,dy]=offset;
+    label.style.setProperty("--label-x",dx+"px");
+    label.style.setProperty("--label-y",dy+"px");
+    placed.push({left:x+dx,top:y+dy,right:x+dx+w,bottom:y+dy+h});
+  });
 }
 
-function renderGlobe(watch) {
-  const visible = [];
-  for (const region of worldRegions) {
-    const regional=byListing(watch,region.id);
-    const indices=region.indices.map(([symbol,name])=>({symbol,name})).filter(matches);
-    const [symbol,name]=region.leader;
-    const leader=!regional.some(row=>row.symbol===symbol)&&matches({symbol,name})?{symbol,name}:null;
-    if (indices.length||regional.length||leader) visible.push({region,regional,indices,leader});
+function panelQuoteLink(name,symbol,kind="") {
+  const reading=quotes[symbol];
+  const move=moveOf(reading);
+  const source=reading?quoteStamp(reading)+(fresh.has(symbol)?"":" · 最近可用"):"暂无在线报价";
+  return '<a'+(kind==='holding'?' class="globe-adr-link"':'')+' href="'+sourceUrl(symbol)
+    +'" target="_blank" rel="noopener noreferrer" title="'+esc(source)+'">'
+    +'<span>'+esc(kind==='holding'?"持有 ADR":name)+'<small>'+esc(displaySymbol(symbol))+(kind==='ADR'?' · ADR':'')+'</small></span>'
+    +'<strong class="'+tone(move)+'">'+pctText(move)+'</strong></a>';
+}
+
+function marketPanelRows(title,rows,country) {
+  return '<section class="globe-market-group"><h3>'+title+'</h3>'+rows.map(row=>{
+    const local=row.adrMarkets?.find(market=>market.country===country&&country!==row.country);
+    if (local) return panelQuoteLink(row.name,local.symbol)+panelQuoteLink(row.name,row.symbol,"holding");
+    return panelQuoteLink(row.name,row.symbol,row.isAdr?"ADR":"");
+  }).join("")+'</section>';
+}
+
+function positionMarketPanel() {
+  if (globePopup.hidden||!activeMarket) return;
+  const box=globe.getBoundingClientRect();
+  const {width,height}=globePopup.getBoundingClientRect();
+  const x=activeMarket.x*box.width, y=activeMarket.y*box.height;
+  const left=x<=box.width/2 ? x+12 : x-12-width;
+  globePopup.style.left=Math.max(0,Math.min(left,box.width-width))+"px";
+  globePopup.style.top=Math.max(0,Math.min(y-20,box.height-height))+"px";
+}
+
+function renderMarketPanel(holdings) {
+  if (!activeMarket) return;
+  const {country,city}=activeMarket;
+  const indices=indexRows.filter(row=>row.country===country);
+  const stocks=holdings.filter(row=>row.country===country||row.adrMarkets.some(market=>market.country===country));
+  if (!indices.length&&!stocks.length) {closeMarketPanel();return;}
+  const name=countryName(country);
+  by("globe-popup-title").textContent=city&&city!==name ? name+" · "+city : name;
+  const contents=by("globe-popup-rows");
+  if (contents.dataset.country!==country||!contents.contains(document.activeElement)) {
+    contents.dataset.country=country;
+    contents.innerHTML=(indices.length?marketPanelRows("当地指数",indices):"")
+      +(stocks.length?marketPanelRows("我的持仓",stocks,country):'<p class="work-note">该市场暂无持仓</p>');
   }
-  by("globe-map").hidden=!visible.length;
-  by("globe-regions").innerHTML=visible.map(({region,regional,indices,leader})=>{
-    const [x,y]=region.label;
-    const held=regional.filter(row=>row.held);
-    const shown=held.length?held:regional;
-    const limit=region.id==="north"?10:2;
-    const more=shown.length-limit;
-    return '<section class="globe-card globe-'+region.id+'" style="--map-x:'+x+'%;--map-y:'+y+'%">'
-      +(indices.length||regional.length?'<a class="globe-region-name" href="#world-region-'+region.id+'">'+esc(region.name)+'</a>'
-        :'<span class="globe-region-name">'+esc(region.name)+'</span>')
-      +indices.slice(0,region.pinned).map(globeReading).join("")
-      +(leader?globeReading(leader):"")
-      +(shown.length?'<div class="globe-holdings"><span>'+ (held.length?'持仓':'自选') +'</span>'
-        +'<div class="globe-holding-rows">'+shown.slice(0,limit).map(globeReading).join("")+'</div>'
-        +(more>0?'<a href="#held-region-'+region.id+'">另有 '+more+' 项</a>':"")+'</div>':"")+'</section>';
-  }).join("");
-  by("globe-points").innerHTML=visible.map(({region,indices,regional,leader})=>{
-    const [x,y]=projectMarket(region.location);
-    const [labelX,labelY]=region.label;
-    const move=moveOf(quotes[(indices[0]||regional[0]||leader)?.symbol]);
-    return '<path d="M'+x.toFixed(1)+','+y.toFixed(1)+' L'+(labelX*10+36)+','+(labelY*3.9+15)+'"/>'
-      +'<circle class="'+tone(move)+'" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="4.3"/>';
-  }).join("");
+  globePopup.hidden=false;
+  positionMarketPanel();
+}
+
+function closeMarketPanel(restoreFocus=false) {
+  clearTimeout(hideMarketTimer);
+  if (!activeMarket) return;
+  const {country,button}=activeMarket;
+  activeMarket=null;
+  marketPinned=false;
+  mapAreas.get(country)?.classList.remove("globe-active-area");
+  button?.setAttribute("aria-expanded","false");
+  if (restoreFocus&&!globePopup.hidden) (button??mapMarkers.find(item=>item.button.dataset.country===country)?.button)?.focus({preventScroll:true});
+  globePopup.hidden=true;
+}
+
+function openMarketPanel(target,event,pinned=false) {
+  clearTimeout(hideMarketTimer);
+  const {country,city}=target.dataset;
+  const button=target.matches("button")?target:null;
+  if (pinned&&marketPinned&&activeMarket?.button===button&&activeMarket?.country===country) {
+    closeMarketPanel();
+    return;
+  }
+  if (activeMarket?.country===country&&activeMarket.button===button&&!pinned) return;
+  const box=globe.getBoundingClientRect();
+  if (!box.width||!box.height) return;
+  const at=button?.getBoundingClientRect();
+  closeMarketPanel();
+  activeMarket={country,city,button,
+    x:((at?at.left+at.width/2:event.clientX)-box.left)/box.width,
+    y:((at?at.top+at.height/2:event.clientY)-box.top)/box.height};
+  marketPinned=pinned;
+  mapAreas.get(country)?.classList.add("globe-active-area");
+  button?.setAttribute("aria-expanded","true");
+  renderMarketPanel(heldRows());
+}
+
+function deferMarketClose() {
+  clearTimeout(hideMarketTimer);
+  if (!marketPinned) hideMarketTimer=setTimeout(()=>{
+    if (!globePopup.contains(document.activeElement)) closeMarketPanel();
+  },190);
+}
+
+globe.addEventListener("pointerover",event=>{
+  if (event.pointerType==="touch"||marketPinned) return;
+  if (globePopup.contains(event.target)) {clearTimeout(hideMarketTimer);return;}
+  const target=event.target.closest("[data-country]");
+  if (target) {
+    if (activeMarket?.country===target.dataset.country&&!target.matches("button")) {
+      clearTimeout(hideMarketTimer);
+      return;
+    }
+    openMarketPanel(target,event);
+  } else deferMarketClose();
+});
+globe.addEventListener("pointerleave",deferMarketClose);
+globe.addEventListener("focusin",event=>{
+  clearTimeout(hideMarketTimer);
+  if (event.target.matches(".globe-pin")&&!globePopup.contains(event.relatedTarget)) openMarketPanel(event.target,event);
+});
+globe.addEventListener("focusout",event=>{
+  if (!globe.contains(event.relatedTarget)) deferMarketClose();
+});
+globe.addEventListener("click",event=>{
+  const target=event.target.closest("[data-country]");
+  if (target) {
+    openMarketPanel(target,event,true);
+    if (event.detail===0&&!globePopup.hidden) by("globe-popup-close").focus();
+  }
+});
+by("globe-popup-close").addEventListener("click",()=>closeMarketPanel(true));
+document.addEventListener("pointerdown",event=>{if (!globe.contains(event.target)) closeMarketPanel();});
+document.addEventListener("keydown",event=>{if (event.key==="Escape"&&activeMarket) closeMarketPanel(globePopup.contains(document.activeElement));});
+new ResizeObserver(()=>{layoutGlobeLabels();positionMarketPanel();}).observe(globe);
+document.fonts.ready.then(layoutGlobeLabels);
+
+function renderGlobe(holdings) {
+  const countries=new Set(indexRows.concat(holdings).map(row=>row.country));
+  for (const row of holdings) for (const market of row.adrMarkets) countries.add(market.country);
+  for (const [country,path] of mapAreas) path.classList.toggle("globe-market-area",countries.has(country));
+  for (const {symbol,name,button,value} of mapMarkers) {
+    const move=moveOf(quotes[symbol]);
+    const change=pctText(move);
+    button.classList.toggle("up",move>0);
+    button.classList.toggle("down",move<0);
+    button.setAttribute("aria-label",[button.dataset.city,name,change,"查看当地指数与持仓"].join(" · "));
+    value.textContent=change;
+  }
+  layoutGlobeLabels();
+  renderMarketPanel(holdings);
 }
 
 function marketSpark(values,direction) {
@@ -133,15 +313,15 @@ function matches(row) {
   return !needle || (row.symbol+" "+row.name).toUpperCase().includes(needle);
 }
 
-function marketRow({symbol,name,held,localPrice}) {
+function marketRow({symbol,name,held,localPrice,isAdr}) {
   const reading=quotes[symbol];
   const move=moveOf(reading);
   const time=reading?timeAt(reading.time,reading.timezone):fnum(localPrice)?"手动价":"暂无报价";
   const stale=fnum(reading?.time)&&Date.now()-reading.time>fourDays;
   const source=reading?quoteStamp(reading):time;
   const status=reading?(stale?" · 报价超过四天":!fresh.has(symbol)?" · 快照":""):"";
-  return '<a class="market-line" href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer" title="'+esc(name+" "+symbol+" · "+source+status)+'">'
-    +'<div class="market-name"><span>'+esc(name)+'</span><small>'+esc(symbol)+(held?' · 持仓':'')
+  return '<a class="market-line" href="'+sourceUrl(symbol)+'" target="_blank" rel="noopener noreferrer" title="'+esc(name+" "+displaySymbol(symbol)+" · "+source+status)+'">'
+    +'<div class="market-name"><span>'+esc(name)+'</span><small>'+esc(displaySymbol(symbol))+(isAdr?' · ADR':held?' · 持仓':'')
     +(sessionNames[reading?.session]?' · '+sessionNames[reading.session]:reading?.delayMinutes?' · 延迟':'')+'</small></div>'
     +marketSpark(reading?.spark,tone(move))
     +'<div class="market-number"><strong>'+fmt(reading?.price??localPrice)+'</strong></div>'
@@ -156,17 +336,48 @@ function regionMarkup(id,label,rows) {
 }
 
 function renderWorld() {
-  const watch=watchRows();
-  renderGlobe(watch);
-  by("regions").innerHTML=worldRegions.map(({id,name,indices})=>{
-    const list=indices.map(([symbol,name])=>({symbol,name})).filter(matches);
-    const regional=byListing(watch,id);
-    return regionMarkup("world-region-"+id,name,list.length?list:regional);
-  }).join("") || '<p class="work-note">没有符合条件的指数</p>';
-  by("watch-rows").innerHTML=[...worldRegions,{id:"other",name:"其他上市地"}].map(({id,name})=>
-    regionMarkup("held-region-"+id,name,byListing(watch,id))).join("")
-    || '<p class="work-note">没有符合条件的持仓与自选</p>';
-  by("watch-help").hidden=watch.some(row=>row.held)||!!by("ticker-filter").value;
+  const holdings=heldRows();
+  renderGlobe(holdings);
+  by("overview-indices").innerHTML=overviewIndices.map(marketRow).join("");
+  by("regions").innerHTML=worldRegions.map(([id,name,countries])=>
+    regionMarkup("world-region-"+id,name,indexRows.filter(row=>countries.includes(row.country)&&matches(row)))).join("")
+    || '<p class="work-note">没有符合条件的指数</p>';
+  const grouped=new Set(worldRegions.flatMap(([, ,countries])=>countries));
+  const other=holdings.filter(row=>!grouped.has(row.country)&&matches(row));
+  by("watch-rows").innerHTML=(worldRegions.map(([id,name,countries])=>
+    regionMarkup("held-region-"+id,name,holdings.filter(row=>countries.includes(row.country)&&matches(row)))).join("")
+    +regionMarkup("held-region-other","其他上市地",other))
+    || '<p class="work-note">没有符合条件的股票持仓</p>';
+  by("watch-help").hidden=holdings.length>0||!!by("ticker-filter").value;
+}
+
+async function refreshAdrReferences(holdings) {
+  if (resolvingAdr) return;
+  const symbols=holdings.filter(row=>row.kind==="stock"&&row.country==="US"&&/^[A-Z][A-Z0-9.-]{0,14}$/.test(row.symbol)
+    && (adrReferences.get(row.symbol)?.checkAfter ?? 0)<=Date.now()).map(row=>row.symbol);
+  if (!symbols.length) return;
+  resolvingAdr=true;
+  let changed=false;
+  try {
+    const batches=Array.from({length:Math.ceil(symbols.length/8)},(_,i)=>symbols.slice(i*8,i*8+8));
+    await Promise.all(batches.map(async batch=>{
+      const data=await requestMarket("adr",{symbols:batch.join(",")},35000).catch(()=>null);
+      for (const symbol of batch) {
+        const previous=adrReferences.get(symbol);
+        const reading=data?.listings?.[symbol];
+        const markets=Array.isArray(reading?.markets)?reading.markets.filter(row=>row&&/^[A-Z]{2}$/.test(row.country)&&tickerPattern.test(row.symbol)):[];
+        const match=reading?{isAdr:reading.isAdr===true,markets}:previous;
+        if (Boolean(match?.isAdr)!==Boolean(previous?.isAdr)||JSON.stringify(match?.markets??[])!==JSON.stringify(previous?.markets??[])) changed=true;
+        adrReferences.set(symbol,{...match,checkAfter:Date.now()+(reading?.complete?21600000:180000)});
+      }
+    }));
+  } finally {
+    resolvingAdr=false;
+  }
+  if (changed) {
+    renderWorld();
+    refreshWorld();
+  }
 }
 
 async function refreshWorld() {
@@ -178,7 +389,10 @@ async function refreshWorld() {
   waiting=true;
   by("refresh").disabled=true;
   by("world-status").textContent="正在请求最新报价。";
-  const symbols=[...new Set(worldRegions.flatMap(region=>[region.leader,...region.indices].map(([symbol])=>symbol)).concat(watchRows().map(row=>row.symbol)))];
+  const holdings=heldRows();
+  refreshAdrReferences(holdings);
+  const locals=holdings.flatMap(row=>row.adrMarkets.filter(market=>mapAreas.has(market.country)).map(market=>market.symbol));
+  const symbols=[...new Set(indexRows.concat(holdings).map(row=>row.symbol).concat(locals))];
   try {
     const readings=await latestMarketQuotes(symbols);
     let refreshed=0;
@@ -200,46 +414,27 @@ async function refreshWorld() {
 }
 
 by("ticker-filter").addEventListener("input",renderWorld);
-by("refresh").addEventListener("click",refreshWorld);
-by("edit-watchlist").addEventListener("click",()=>{
-  by("watch-input").value=(ownWatch??(portfolioRows.length?[]:defaultWatch)).filter(([key])=>stockSymbol(key)).map(([key,name])=>key+", "+name).join("\n");
-  by("watch-error").textContent="";
-  by("watch-dialog").showModal();
-});
-by("watch-form").addEventListener("submit",event=>{
-  event.preventDefault();
-  const next=by("watch-input").value.split(/\r?\n/).filter(line=>line.trim()).map(line=>{
-    const [key,...label]=line.split(/[,，]/);
-    return [key.trim().toUpperCase(),label.join(",").trim().slice(0,70)||key.trim()];
-  });
-  if (next.length>24||next.some(([key])=>!stockSymbol(key))) {
-    by("watch-error").textContent="请填写股票、股票型 ETF 或指数代码，自选最多 24 项。";
-    return;
-  }
-  ownWatch=[...new Map(next)];
-  const saved=localWrite(storageKeys.watch,ownWatch);
-  by("watch-dialog").close();
-  renderWorld();
-  refreshWorld();
-  if (!saved) by("world-status").textContent="浏览器未允许保存自选，本次会话可用。";
-});
+by("refresh").addEventListener("click",refreshWorldData);
 window.addEventListener("storage",event=>{
-  if(event.key!==storageKeys.portfolio&&event.key!==storageKeys.watch)return;
+  if(event.key!==storageKeys.portfolio)return;
   portfolioRows=localRead(storageKeys.portfolio,{}).positions||[];
-  ownWatch=localRead(storageKeys.watch,null);
   renderWorld();
   refreshWorld();
 });
-renderWorld();
-refreshWorld();
-setInterval(()=>{if(!document.hidden)refreshWorld();},60000);
-document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshWorld();});
-
-fetch("./api/portfolio",{cache:"no-store",signal:AbortSignal.timeout(8000)}).then(async response=>{
-  if(!response.ok)return;
-  const data=await response.json();
-  if(!Array.isArray(data.portfolio?.positions))return;
-  portfolioRows=data.portfolio.positions;
-  renderWorld();
+async function refreshWorldData() {
   refreshWorld();
-}).catch(()=>{});
+  try {
+    const data=await requestSavedPortfolio();
+    if (!Array.isArray(data?.portfolio?.positions)) return;
+    const previous=JSON.stringify(portfolioRows);
+    portfolioRows=data.portfolio.positions;
+    if (JSON.stringify(portfolioRows)!==previous) {
+      renderWorld();
+      refreshWorld();
+    }
+  } catch {}
+}
+renderWorld();
+refreshWorldData();
+setInterval(()=>{if(!document.hidden)refreshWorld();},60000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshWorldData();});

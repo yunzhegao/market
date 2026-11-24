@@ -3,7 +3,7 @@
 ## 页面
 
 - `framework.html` — 回调观察框架和美股风险指标。旧首页 `index.html` 会跳转。
-- `world.html` — 环球指数、代表性大盘股、股票持仓和自选在地图和分区表中展示。地图使用 [Natural Earth](https://www.naturalearthdata.com/about/terms-of-use/) 的陆地数据，持仓按上市地归区。行情接口为 `scope=world`（每批 8 个代码）。
+- `world.html` — 地图和分区表展示环球指数与股票持仓。地图按城市经纬度定位指数。悬停市场区域或选中圆点可查看当地指数和组合分析中的同一上市地持仓。陆地和交互边界使用 [Natural Earth](https://www.naturalearthdata.com/downloads/110m-cultural-vectors/) 数据。行情接口为 `scope=world`（每批 8 个代码）。`scope=adr` 按持仓代码查询 Citi 存托凭证目录，并用 OpenFIGI 的原股 ISIN 匹配上市市场；原市场详情分别列出原股和持有 ADR 的报价。自建行情 Worker 需要部署新版后才会提供这项匹配。
 - `portfolio.html` — 手动维护多账户持仓及现金，按选定币种计算市值、价格与汇率贡献、集中度、ETF 重叠和情景损失。双层环形图内圈是分类，外圈是具体持仓，账面现金与现金替代合并在现金类。空白价格日期或当日日期会访问 `scope=fx` 取公开市场汇率。历史价格日期默认使用 Frankfurter 的对应日期参考值。手动汇率优先。
 
 在已配置数据库的管理站点，添加、导入和编辑持仓会保存到 D1。无数据库连接的静态副本使用本地浏览器存储。自动行情只发证券代码，合并持仓的数量、现金和成本保存在管理数据库。手动价格用于关掉自动行情或缺少同币种报价时。Yahoo Finance 的美股盘前、盘中、盘后和 SGX 报价均带时间，SGX 和港股公开报价分别延迟约 20 和 15 分钟。

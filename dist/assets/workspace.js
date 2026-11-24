@@ -7,7 +7,7 @@ const fmt = (value, digits = 2) => fnum(value) ? value.toLocaleString("en-US", {
 const tone = value => value > 0 ? "up" : value < 0 ? "down" : "";
 const plus = (value, digits = 2) => fnum(value) ? (value > 0 ? "+" : "") + fmt(value, digits) : "—";
 const pctText = value => fnum(value) ? plus(value) + "%" : "—";
-const storageKeys = {portfolio:"market-observation-portfolio-v1", watch:"market-observation-watch-v1", theme:"market-monitor-theme"};
+const storageKeys = {portfolio:"market-observation-portfolio-v1", theme:"market-monitor-theme"};
 const configured = window.MARKET_LIVE_CONFIG?.apiBase?.replace(/\/$/, "");
 const endpoint = configured || ".";
 const browserFile = location.protocol === "file:";
@@ -25,6 +25,13 @@ function localWrite(key, content) {
   catch { return false; }
 }
 
+async function requestSavedPortfolio() {
+  const response = await fetch("./api/portfolio",{cache:"no-store",signal:AbortSignal.timeout(8000)});
+  if (!response.ok) return null;
+  const data = await response.json();
+  return Number.isSafeInteger(data.version) ? data : null;
+}
+
 function timeAt(time, zone = "Asia/Shanghai", full = false) {
   if (!fnum(time)) return "—";
   const format = timeZone => new Intl.DateTimeFormat("zh-CN", {
@@ -33,7 +40,7 @@ function timeAt(time, zone = "Asia/Shanghai", full = false) {
   try { return format(zone || "Asia/Shanghai"); } catch { return format("UTC"); }
 }
 
-async function requestMarket(scope, parameters = {}) {
+async function requestMarket(scope, parameters = {}, timeout = 23000) {
   if (!hasApi) throw new Error("行情接口未配置");
   const query = new URLSearchParams({scope, ...parameters});
   const response = await fetch(endpoint + "/api/market?" + query, {cache:"no-store", signal:AbortSignal.timeout(23000)});

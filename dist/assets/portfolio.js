@@ -20,18 +20,21 @@ let livePortfolio = localRead("market-observation-live-prices",true);
 const formatter = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"});
 const editorDialog = by("portfolio-dialog");
 
+const sampleAccount = "演示账户";
 const sample = {
   base:"USD", date:"", rates:{}, scenarios:defaultScenarios,
   positions:[
-    {account:"示例账户 A",symbol:"SPYM",name:"标普 500 ETF",kind:"etf",currency:"USD",quantity:65,price:83,previous:81,cost:80,bucket:"core",role:"标普 500 核心底仓"},
-    {account:"示例账户 A",symbol:"NVDA",name:"英伟达",kind:"stock",currency:"USD",quantity:9,price:155,previous:149,cost:144,bucket:"tech",role:"AI 增长敞口"},
-    {account:"示例账户 A",symbol:"BOXX",name:"现金替代 ETF",kind:"etf",currency:"USD",quantity:35,price:118,previous:118.05,cost:115,bucket:"reserve",role:"候选再配置资金"},
-    {account:"示例账户 A",symbol:"USD",kind:"cash",currency:"USD",quantity:550},
-    {account:"示例账户 B",symbol:"SPYM",name:"标普 500 ETF",kind:"etf",currency:"USD",quantity:15,price:83,previous:81,cost:86,bucket:"core",role:"标普 500 核心底仓"},
-    {account:"示例账户 B",symbol:"O39.SI",name:"华侨银行",kind:"stock",currency:"SGD",quantity:180,price:24,previous:24.4,cost:20,bucket:"bank",role:"新加坡银行与 SGD 敞口"},
-    {account:"示例账户 B",symbol:"SGD",kind:"cash",currency:"SGD",quantity:300},
+    {account:sampleAccount,symbol:"SPY",name:"标普 500 ETF",kind:"etf",currency:"USD",quantity:12,price:550,previous:544,cost:515,bucket:"core",role:"美股大盘底仓"},
+    {account:sampleAccount,symbol:"AAPL",name:"苹果",kind:"stock",currency:"USD",quantity:8,price:190,previous:192,cost:175,bucket:"tech",role:"大型科技股敞口"},
+    {account:sampleAccount,symbol:"NVDA",name:"英伟达",kind:"stock",currency:"USD",quantity:10,price:135,previous:131,cost:120,bucket:"tech",role:"半导体成长敞口"},
+    {account:sampleAccount,symbol:"TLT",name:"美国长期国债 ETF",kind:"etf",currency:"USD",quantity:15,price:88,previous:87.5,cost:90,bucket:"duration",role:"长久期国债敞口"},
+    {account:sampleAccount,symbol:"GLD",name:"黄金 ETF",kind:"etf",currency:"USD",quantity:5,price:235,previous:236,cost:220,bucket:"gold",role:"黄金敞口"},
+    {account:sampleAccount,symbol:"USD",kind:"cash",currency:"USD",quantity:1500},
   ],
-  weights:[{fund:"SPYM",member:"NVDA",weight:6,date:"",source:"演示用权重"}],
+  weights:[
+    {fund:"SPY",member:"AAPL",weight:6,date:"",source:"演示用权重"},
+    {fund:"SPY",member:"NVDA",weight:5,date:"",source:"演示用权重"},
+  ],
 };
 
 const options = (map,value)=>Object.entries(map).map(([key,label])=>'<option value="'+esc(key)+'"'+(key===value?' selected':'')+'>'+esc(label)+'</option>').join("");
@@ -140,16 +143,16 @@ async function publicSnapshot() {
 
 async function openDatabase() {
   try {
-    const response = await fetch("./api/portfolio",{cache:"no-store",signal:AbortSignal.timeout(8000)});
-    if (!response.ok) return;
-    const data = await response.json();
-    if (!Number.isSafeInteger(data.version)) return;
+    const data = await requestSavedPortfolio();
+    if (!data) return;
     if (data.portfolio) {
-      portfolio = normalizePortfolio(data.portfolio);
-      demo = false;
-      by("base-currency").value = portfolio.base;
-      localWrite(storageKeys.portfolio,portfolio);
-      refreshPortfolioQuotes();
+      const stored = normalizePortfolio(data.portfolio);
+      localWrite(storageKeys.portfolio,stored);
+      if (!demo) {
+        portfolio = stored;
+        by("base-currency").value = portfolio.base;
+        refreshPortfolioQuotes();
+      }
     }
     databaseVersion = data.version;
     drawOrders();
@@ -184,7 +187,7 @@ function showHoldings(report) {
     td(esc(row.roles.join(" / "))),
     td(fmt(row.quantity,4)+" "+esc(row.kind==="cash"?row.currency:"")),
     td(row.kind==="cash" ? "—" : money(row.price) + (livePortfolio && !demo && portfolioQuotes[row.symbol]?.currency===row.currency
-      ? '<small>'+esc(quoteStamp(portfolioQuotes[row.symbol]))+'</small>' : '<small>手动价</small>')),
+      ? '<small>'+esc(quoteStamp(portfolioQuotes[row.symbol]))+'</small>' : '<small>'+(demo?"示例价":"手动价")+'</small>')),
     td(money(row.marketValue)+(row.incomplete?'<small>有待补数据</small>':"")),
     td(ratio(navWeight(row.marketValue,report.nav))),
     td(signedMoney(row.totalImpact)),
@@ -433,7 +436,8 @@ by("editor-form").addEventListener("submit",async event=>{
     draft[mode] = mode==="rates" ? Object.fromEntries(rows.map(row=>[row.currency,row])) : rows;
     if (mode==="positions") draft.date=date;
     const next = normalizePortfolio(draft);
-    await writePortfolio(next);
+    if (demo) portfolio = next;
+    else await writePortfolio(next);
     if (mode==="positions") orders = [];
     editorDialog.close();
     drawOrders();
