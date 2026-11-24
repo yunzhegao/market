@@ -21,6 +21,7 @@
   --calm-wash: #e7f4ec;
   --chart-line: var(--accent);
   --chart-guide: #758aa5;
+  --chart-dot-ring: #fff;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -36,6 +37,7 @@
   --alert-wash: #47252f;
   --calm-wash: #1d3b31;
   --chart-guide: #8195ad;
+  --chart-dot-ring: #000;
 }
 *, *::before, *::after {box-sizing:border-box}
 [hidden] {display:none!important}
@@ -112,7 +114,7 @@ p, h1, h2, dl, dd {margin:0}
 .chart svg text {font-family:var(--font-ui);font-variant-numeric:tabular-nums}
 .chart-empty, .chart-bottom {color:var(--muted);font-size:.72rem}
 .text-button {padding:0;border:0;background:none;color:var(--accent);font-size:.76rem;font-weight:620;white-space:nowrap}
-.text-button:not(:disabled):is(:hover,:focus-visible) {color:var(--accent-hover)}
+:is(.text-button,.method a):not(:disabled):is(:hover,:focus-visible) {color:var(--accent-hover)}
 .up {color:var(--up)}
 .down {color:var(--down)}
 .signal-vix {grid-area:vix}
@@ -160,7 +162,6 @@ dialog::backdrop {background:#15213265}
 .dialog-body {padding:.4rem .85rem .75rem}
 .method p, .scenario-list p {margin:.45rem 0}
 .method a {color:var(--accent)}
-.method a:is(:hover,:focus-visible) {color:var(--accent-hover)}
 .scenario-list details {padding:.5rem 0;border-bottom:1px solid var(--line)}
 .scenario-list details:last-child {border-bottom:0}
 .scenario-list summary {cursor:pointer}
@@ -251,7 +252,8 @@ dialog::backdrop {background:#15213265}
   min-height:34px;
   cursor:crosshair;
 }
-.spark-graph {display:block;height:clamp(15px,4dvh,38px);min-height:14px;width:100%}
+.spark-graph {position:relative;display:block;height:clamp(15px,4dvh,38px);min-height:14px;width:100%}
+.spark-dot {position:absolute;transform:translate(-50%,-50%);width:8px;height:8px;border:1.4px solid var(--chart-dot-ring);border-radius:50%;background:var(--spark-color);pointer-events:none}
 .spark-caption {display:flex;justify-content:space-between;gap:.25rem;color:var(--muted);font-size:.65rem;line-height:1.2;font-variant-numeric:tabular-nums}
 .indicator-tip {
   position:fixed;

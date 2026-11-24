@@ -50,10 +50,10 @@
       <div class="page-tools">
         <label for="base-currency">显示币种</label><select id="base-currency"></select>
         <label class="quote-switch"><input type="checkbox" id="live-portfolio" checked>自动行情</label>
-        <button type="button" class="compact-button" id="edit-rates">汇率</button>
-        <button type="button" class="compact-button" id="public-portfolio" hidden>展示设置</button>
+        <button type="button" class="compact-button pill-button" id="edit-rates">汇率</button>
+        <button type="button" class="compact-button pill-button" id="public-portfolio" hidden>展示设置</button>
         <button type="button" class="compact-button" id="exit-demo" hidden>退出演示</button>
-        <button type="button" class="solid-button" id="edit-portfolio">编辑持仓</button>
+        <button type="button" class="solid-button pill-button" id="edit-portfolio">编辑持仓</button>
       </div>
     </div>
     <p id="portfolio-status" class="work-status" role="status"></p>
@@ -87,7 +87,8 @@
             </div>
             <div class="segments" role="group" aria-label="净值图表类型">
               <button type="button" data-nav-mode="line" aria-pressed="true">折线</button>
-              <button type="button" data-nav-mode="candle" aria-pressed="false">K 线</button>
+              <button type="button" data-nav-mode="day" aria-pressed="false">日 K</button>
+              <button type="button" data-nav-mode="week" aria-pressed="false">周 K</button>
             </div>
           </div>
         </div>
@@ -98,6 +99,7 @@
             <div id="nav-history-readout" class="chart-readout" aria-live="polite"></div>
           </div>
           <div id="nav-history-chart" class="chart" tabindex="0" role="group" aria-label="组合净值图，使用左右方向键查看估值"></div>
+          <p id="nav-history-chart-empty" class="chart-empty" hidden>日 K 线需要连续两天的估值。</p>
           <div class="chart-bottom"><span id="nav-history-dates"></span><span id="nav-history-unit"></span></div>
           <details class="work-method nav-history-details">
             <summary>每日估值明细</summary>

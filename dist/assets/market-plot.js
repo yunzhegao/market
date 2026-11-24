@@ -92,7 +92,7 @@ function drawMarketPlot(target, rows, {candle = false, base, history = rows, poi
       }).join("");
   }
   target.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" aria-hidden="true">' + grid + separators + reference + graphics + dateTicks
-    + '<line data-guide style="opacity:0" stroke="var(--chart-guide)" stroke-opacity=".75" stroke-dasharray="4 3"/><circle data-cursor style="opacity:0" r="4.1" fill="var(--chart-line)" stroke="var(--page)" stroke-width="1.6"/></svg>';
+    + '<line data-guide style="opacity:0" stroke="var(--chart-guide)" stroke-opacity=".75" stroke-dasharray="4 3"/><circle data-cursor style="opacity:0" r="4.1" fill="var(--chart-line)" stroke="var(--chart-dot-ring)" stroke-width="1.6"/></svg>';
   const tip = document.createElement("div");
   tip.className = "chart-point-tip";
   tip.hidden = true;

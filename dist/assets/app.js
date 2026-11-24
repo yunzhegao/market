@@ -439,6 +439,8 @@ function renderTable(rows) {
 }
 
 const sparkData = new Map();
+const sparkViewBox = {width:260,height:43,left:3,right:257};
+const sparkDotPosition = ([x,y]) => "left:"+x/sparkViewBox.width*100+"%;top:"+y/sparkViewBox.height*100+"%";
 
 function spark(id, rows, caption, format, color) {
   const target = byId(id);
@@ -454,10 +456,11 @@ function spark(id, rows, caption, format, color) {
   }
   const values = points.map(row => row[1]);
   const {y} = priceScale(values, 4, 38);
-  const coords = values.map((value, i) => [3 + i * 254 / (values.length - 1), y(value)]);
+  const {width,height,left,right} = sparkViewBox;
+  const coords = values.map((value, i) => [left + i * (right-left) / (values.length - 1), y(value)]);
   const profile = coords.map(c => c.map(x => x.toFixed(2)).join(",")).join(" ");
-  const [endX, endY] = last(coords);
-  target.innerHTML = '<span class="spark-graph"><svg viewBox="0 0 260 43" preserveAspectRatio="none" aria-hidden="true"><path d="M3,38H257" stroke="var(--line)" fill="none"/><polyline points="' + profile + '" stroke="' + color + '" stroke-width="1.8" vector-effect="non-scaling-stroke" fill="none" stroke-linejoin="round"/><circle cx="' + endX + '" cy="' + endY + '" r="2.55" fill="' + color + '"/><line data-spark-guide y1="3" y2="38" stroke="var(--chart-guide)" vector-effect="non-scaling-stroke" stroke-dasharray="3 2" visibility="hidden"/><circle data-spark-dot r="3" fill="' + color + '" stroke="var(--page)" vector-effect="non-scaling-stroke" visibility="hidden"/></svg></span>'
+  target.innerHTML = '<span class="spark-graph" style="--spark-color:'+color+'" aria-hidden="true"><svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none"><path d="M'+left+',38H'+right+'" stroke="var(--line)" fill="none"/><polyline points="' + profile + '" stroke="' + color + '" stroke-width="1.8" vector-effect="non-scaling-stroke" fill="none" stroke-linejoin="round"/><line data-spark-guide y1="3" y2="38" stroke="var(--chart-guide)" vector-effect="non-scaling-stroke" stroke-dasharray="3 2" visibility="hidden"/></svg>'
+    + '<span class="spark-dot" data-spark-dot style="'+sparkDotPosition(last(coords))+'"></span></span>'
     + '<span class="spark-caption"><span>' + caption + '</span><span>' + shortDate(points[0][0]) + '–' + shortDate(last(points)[0]) + '</span></span>';
   sparkData.get(target).coords = coords;
 }

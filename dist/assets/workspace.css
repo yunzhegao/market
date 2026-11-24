@@ -62,7 +62,10 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .compact-button,.solid-button {border:1px solid var(--line);background:var(--page);border-radius:5px;padding:.34rem .55rem;white-space:nowrap}
 .compact-button:enabled:is(:hover,:focus-visible) {background:var(--subtle);color:var(--accent)}
 .solid-button {background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
-.solid-button:enabled:is(:hover,:focus-visible) {background:var(--accent-hover);border-color:var(--accent-hover)}
+.pill-button {border-radius:999px;padding-inline:.76rem;font-weight:620}
+.compact-button.pill-button {background:transparent;border-color:var(--accent);color:var(--accent)}
+.solid-button:enabled:is(:hover,:focus-visible),
+.compact-button.pill-button:enabled:is(:hover,:focus-visible) {background:var(--accent-hover);border-color:var(--accent-hover);color:var(--on-accent)}
 .work-page select:enabled:is(:hover,:focus-visible),.editor-dialog select:enabled:is(:hover,:focus-visible) {border-color:var(--accent)}
 .empty-portfolio {padding:1.3rem;margin:.5rem 0}
 .empty-portfolio p {margin:.45rem 0 .7rem;color:var(--muted)}

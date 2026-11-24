@@ -168,15 +168,17 @@ function navPoint(date, holdings, base, prices, missing = new Set()) {
   return !incomplete && fnum(total) ? {date,value:total,sources:[...sources]} : null;
 }
 
+function navDay(history, date) {
+  const saved = history?.snapshots.findLast(row=>row.date<=date);
+  const snapshot = saved ?? history?.reference;
+  return snapshot ? {date,holdings:snapshot.holdings,basis:snapshot.id,estimated:!saved} : null;
+}
+
 function navDays(history, now, range = navView.range) {
   if (!history) return [];
   const {from,to} = navRangeDates(range,now);
   const start = navCutoff(from), end = navCutoff(to);
-  return Array.from({length:Math.max(0,(end-start)/navDayMs+1)},(_,i)=>navDate(start+i*navDayMs)).flatMap(date=>{
-    const saved = history.snapshots.findLast(row=>row.date<=date);
-    const snapshot = saved ?? history.reference;
-    return snapshot ? [{date,holdings:snapshot.holdings,basis:snapshot.id,estimated:!saved}] : [];
-  });
+  return Array.from({length:Math.max(0,(end-start)/navDayMs+1)},(_,i)=>navDay(history,navDate(start+i*navDayMs))).filter(Boolean);
 }
 
 function navSavedPoints(base, days) {
@@ -294,8 +296,19 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
   }
 }
 
-function navPlotRows(rows, candle) {
-  if (!candle) return rows.map(row=>[navCutoff(row.date),row.value,null,null,null,row]);
+function navPlotRows(rows, mode, prior) {
+  if (mode!=="week") {
+    const point = row=>[navCutoff(row.date),row.value,null,null,null,row];
+    const points = rows.map(point);
+    if (mode==="line") return points;
+    const firstPrevious = prior ? point(prior) : null;
+    return points.flatMap((row,i)=>{
+      const previous = points[i-1] ?? firstPrevious;
+      if (!previous || navPointBreak(previous,row)) return [];
+      const opening = previous[1], closing = row[1];
+      return [[row[0],closing,opening,Math.max(opening,closing),Math.min(opening,closing),row[5]]];
+    });
+  }
   const weeks = [];
   for (const row of rows) {
     const at = Date.parse(row.date);
@@ -327,22 +340,28 @@ function showNavPoint() {
   plotPoint(navView,by("nav-history-readout"),fmt);
 }
 
-function drawNavPlot(rows, from, to) {
-  const candle = navView.mode==="candle";
+function drawNavPlot(rows, from, to, base) {
+  const {mode} = navView;
+  const candle = mode!=="line", weekly = mode==="week";
   const target = by("nav-history-chart");
   const dateLabel = at => navDate(at).slice(5).replace("-","/");
-  navView.plot = drawMarketPlot(target,navPlotRows(rows,candle),{
-    candle,timeDomain:[navCutoff(from),navCutoff(to)],timeLabel:dateLabel,candleSlot:7*navDayMs,
+  const previousDay = mode==="day" ? navDay(portfolio.navHistory,navDate(navCutoff(from)-navDayMs)) : null;
+  const prior = previousDay ? navSavedPoints(base,[previousDay])[0] : null;
+  target.hidden = false;
+  navView.plot = drawMarketPlot(target,navPlotRows(rows,mode,prior),{
+    candle,timeDomain:[navCutoff(from),navCutoff(to)],timeLabel:dateLabel,candleSlot:(weekly?7:1)*navDayMs,
     axisLabel:row=>dateLabel(row[0]),axisFormat:value=>navAxis.format(value),axisWidth:62,
     estimated:row=>row[5].estimated,breakLine:navPointBreak,quietCursor:true,
     pointLabel:row=>{
       const info = row[5];
-      const period = candle && info.first!==info.date ? info.first+" – "+info.date : info.date;
+      const period = weekly && info.first!==info.date ? info.first+" – "+info.date : info.date;
       return period+(info.estimated?" · 回算":"");
     },
     comparison:(row,previous)=>candle ? row[2] : previous && !navPointBreak(previous,row) ? previous[1] : null,
     formatDelta:navDelta,
   });
+  target.hidden = !navView.plot;
+  by("nav-history-chart-empty").hidden = Boolean(navView.plot);
   showNavPoint();
 }
 
@@ -367,7 +386,7 @@ function initNavChart() {
     if (navView.plot && (chart.clientWidth!==navView.plot.width || chart.clientHeight!==navView.plot.height)) {
       const now = Date.now();
       const {from,to} = navRangeDates(navView.range,now);
-      drawNavPlot(navSavedPoints(portfolio.base,navDays(portfolio.navHistory,now)),from,to);
+      drawNavPlot(navSavedPoints(portfolio.base,navDays(portfolio.navHistory,now)),from,to,portfolio.base);
     }
   }).observe(chart);
 }
@@ -383,9 +402,11 @@ function renderNavHistory(base, isDemo) {
   by("nav-history-status").textContent = navStorageError ? "浏览器无法保存每日估值。"
     : navMessage || (!last ? (portfolio.navHistory ? "此区间暂无完整估值。" : "保存持仓后开始记录。") : "");
   by("nav-history-data").hidden = !last;
-  const candle = navView.mode==="candle";
-  by("nav-history-method").textContent = (candle ? "浅色 K 线标记回算。周线取各周每日估值的首值、最高值、最低值和末值。"
-    : "虚线标记回算。缺少行情或汇率的日期留空。") + " 净值含出入金。";
+  const {mode} = navView;
+  const method = mode==="day" ? "日 K 的开收分别取前一日和当日 06:00 净值，高低取这两个值的范围。浅色标记回算。"
+    : mode==="week" ? "周 K 取各周每日估值的首值、最高值、最低值和末值。浅色标记回算。"
+    : "虚线标记回算。缺少行情或汇率的日期留空。";
+  by("nav-history-method").textContent = method+" 净值含出入金。";
   if (!last) {
     navView.plot = null;
     return;
@@ -402,11 +423,13 @@ function renderNavHistory(base, isDemo) {
     +'<span class="'+tone(closing-opening)+'">'+esc(navDelta(closing,opening))+'</span>'
     +" · 最大回撤 "+esc(pctText(drawdown*100)) : "";
   by("nav-history-summary").innerHTML = esc(fmt(last.value)+" "+base+(last.estimated?" · 回算":""))+change;
-  drawNavPlot(rows,from,to);
+  drawNavPlot(rows,from,to,base);
   const dateLabel = from===to ? to : from+" – "+to;
   const coverage = navView.range==="year" || rows.length<days.length ? " · "+rows.length+" / "+days.length+" 天" : "";
   by("nav-history-dates").textContent = dateLabel+coverage;
-  by("nav-history-unit").textContent = "每日 06:00 新加坡时间 · "+(candle?"周 K 线 · 变动较该周首值":"日净值 · 变动较前一日");
+  const unit = mode==="day" ? "日 K 线 · 变动较前一日"
+    : mode==="week" ? "周 K 线 · 变动较该周首值" : "日净值 · 变动较前一日";
+  by("nav-history-unit").textContent = "每日 06:00 新加坡时间 · "+unit;
   table("nav-history-table",["估值日","净值 · "+base,"估值依据"],rows.slice().reverse().map(row=>{
     const sources = (row.sources ?? []).filter(source=>Object.hasOwn(navPriceSources,source)).map(source=>navPriceSources[source]);
     return [td(esc(row.date)),td(fmt(row.value)),td((row.estimated?"回算":"持仓记录")+(sources.length?" · 含"+sources.join("、"):""))];

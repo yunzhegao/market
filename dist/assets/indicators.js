@@ -334,13 +334,19 @@ new ResizeObserver(renderDetail).observe(detailChart);
 let tipTrigger = null;
 let sparkIndex = null;
 
-function clearSpark(target) {
-  target?.querySelector("[data-spark-guide]")?.setAttribute("visibility", "hidden");
-  target?.querySelector("[data-spark-dot]")?.setAttribute("visibility", "hidden");
+function moveSparkDot(target, index) {
+  const coords = sparkData.get(target)?.coords;
+  const mark = index===null ? coords?.at(-1) : coords?.[index];
+  if (!mark) return;
+  const guide = target.querySelector("[data-spark-guide]");
+  guide.setAttribute("x1", mark[0]);
+  guide.setAttribute("x2", mark[0]);
+  guide.setAttribute("visibility", index===null ? "hidden" : "visible");
+  target.querySelector("[data-spark-dot]").setAttribute("style", sparkDotPosition(mark));
 }
 
 function hideTip() {
-  clearSpark(tipTrigger);
+  moveSparkDot(tipTrigger, null);
   tipTrigger?.removeAttribute("aria-describedby");
   tipTrigger = null;
   sparkIndex = null;
@@ -397,16 +403,7 @@ function sparkPoint(trigger, index, event) {
   if (!row) return;
   showTip(trigger, event, {row, format: series.format, before: series.points[index - 1]?.[1] ?? series.prior});
   sparkIndex = index;
-  const mark = series.coords?.[index];
-  if (!mark) return;
-  const guide = trigger.querySelector("[data-spark-guide]");
-  const dot = trigger.querySelector("[data-spark-dot]");
-  guide.setAttribute("x1", mark[0]);
-  guide.setAttribute("x2", mark[0]);
-  guide.setAttribute("visibility", "visible");
-  dot.setAttribute("cx", mark[0]);
-  dot.setAttribute("cy", mark[1]);
-  dot.setAttribute("visibility", "visible");
+  moveSparkDot(trigger,index);
 }
 
 const marketGrid = document.querySelector(".market-grid");
@@ -422,8 +419,10 @@ marketGrid.addEventListener("pointermove", event => {
   if (!series?.points.length) return;
   const graph = trigger.querySelector(".spark-graph");
   if (!graph) return;
-  const {left, width} = graph.getBoundingClientRect();
-  const ratio = Math.max(0, Math.min(1, ((event.clientX - left) / width * 260 - 3) / 254));
+  const rect = graph.getBoundingClientRect();
+  if (!rect.width) return;
+  const {left,right,width} = sparkViewBox;
+  const ratio = Math.max(0, Math.min(1, ((event.clientX - rect.left) / rect.width * width - left) / (right-left)));
   const index = Math.round(ratio * (series.points.length - 1));
   if (tipTrigger !== trigger || index !== sparkIndex) sparkPoint(trigger, index, event);
 });
