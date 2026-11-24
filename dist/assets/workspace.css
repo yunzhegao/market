@@ -80,6 +80,8 @@ dialog textarea {display:block;width:100%;margin-top:.35rem}
 .nav-history-line {stroke:var(--chart-line);stroke-width:2}
 .nav-history-line line {vector-effect:non-scaling-stroke}
 #nav-history-chart circle {fill:var(--chart-line)}
+.nav-history-line .nav-estimated {stroke:var(--muted);stroke-dasharray:4 4}
+#nav-history-chart circle.nav-estimated {fill:var(--muted)}
 .nav-history-details {margin-top:.2rem}
 .work-table-wrap {overflow:auto}
 .work-table {width:100%;border-collapse:collapse;text-align:right;font-size:.74rem;font-variant-numeric:tabular-nums;white-space:nowrap}

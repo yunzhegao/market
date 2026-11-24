@@ -22,7 +22,7 @@ const editorDialog = by("portfolio-dialog");
 
 const sampleAccount = "演示账户";
 const sample = {
-  base:"USD", date:"", rates:{}, scenarios:defaultScenarios,
+  name:"演示组合", base:"USD", date:"", rates:{}, scenarios:defaultScenarios,
   positions:[
     {account:sampleAccount,symbol:"SPY",name:"标普 500 ETF",kind:"etf",currency:"USD",quantity:12,price:550,previous:544,cost:515,bucket:"core",role:"美股大盘底仓"},
     {account:sampleAccount,symbol:"AAPL",name:"苹果",kind:"stock",currency:"USD",quantity:8,price:190,previous:192,cost:175,bucket:"tech",role:"大型科技股敞口"},
@@ -67,14 +67,19 @@ async function updateDatabase(mode, fields = {}) {
   } finally {pendingSave=false;}
 }
 
-async function writePortfolio(next) {
+async function writePortfolio(next, restoredHistory = null) {
+  const savedHistory = databaseVersion === null ? normalizeNavHistory(localRead(storageKeys.portfolio,null)?.navHistory) : null;
+  const previous = restoredHistory ?? savedHistory
+    ?? portfolio.navHistory ?? migrateNavHistory();
+  next = recordNavHoldings(next,previous);
   if (databaseVersion !== null) await updateDatabase("save",{portfolio:next});
   portfolio = next;
   demo = false;
   const saved = localWrite(storageKeys.portfolio,next);
-  recordNavHoldings(next.positions);
+  navStorageError = !saved;
   persistenceWarning = saved || databaseVersion !== null ? "" : "浏览器未允许本地保存。可用「导出备份」保留修改。";
   if (saved) window.dispatchEvent(new Event(portfolioEvent));
+  if (navInitialized) refreshNavHistory(portfolio,livePortfolio,demo);
 }
 
 function portfolioQuote(row) {
@@ -151,8 +156,9 @@ async function openDatabase() {
     const data = await requestSavedPortfolio();
     if (!data) return;
     if (data.portfolio) {
-      const stored = normalizePortfolio(data.portfolio);
-      localWrite(storageKeys.portfolio,stored);
+      const state = normalizePortfolio(data.portfolio);
+      const stored = recordNavHoldings(state,state.navHistory ?? portfolio.navHistory ?? migrateNavHistory());
+      navStorageError = !localWrite(storageKeys.portfolio,stored);
       if (!demo) {
         portfolio = stored;
         by("base-currency").value = portfolio.base;
@@ -346,7 +352,9 @@ function draw() {
   const rates = effectiveRates(autoRates,portfolio.rates);
   const report = analyze(portfolioRowsNow(),portfolio,rates);
   by("portfolio-empty").hidden = Boolean(report.values.length);
-  by("portfolio-results").hidden = !report.values.length;
+  by("portfolio-results").hidden = !report.values.length && (demo || !portfolio.navHistory);
+  by("portfolio-kpis").hidden = !report.values.length;
+  by("portfolio-details").hidden = !report.values.length;
   by("exit-demo").hidden = !demo;
   const status = [
     demo ? "演示数据" : databaseVersion !== null ? "持仓已接入数据库" : "本机持仓",
@@ -363,8 +371,8 @@ function draw() {
   by("public-portfolio").hidden = demo || !report.values.length;
   if (report.values.length) {
     showStats(report); renderAllocation(report,portfolio.base); showHoldings(report); showAttribution(report); showExposure(report); showSimulation(report,rates);
-    renderNavHistory(portfolio.base,demo);
   }
+  renderNavHistory(portfolio.base,demo);
 }
 
 function orderClassification(value) {
@@ -432,7 +440,7 @@ const weightsFields = [["fund","ETF","text"],["member","成分代码","text"],["
 const stressFields = [["name","情景","text"],...Object.entries(buckets).map(([key,label])=>[key,label,"number"]),["fx","外币均变动 %","number"]];
 const rateFields = [["currency","每 1 USD 兑换","readonly"],["now","当期汇率","number"],["prev","前期汇率","number"]];
 const modes = {
-  positions:{title:"编辑账户与持仓",fields:positionsFields,prompt:"每行填一个账户的持仓或现金。现金行只需账户、币种和金额。可以用自定义文字描述每项持仓的作用。"},
+  positions:{title:"编辑账户与持仓",fields:positionsFields,prompt:"买卖或入出金后，请更新证券数量及现金余额并保存。每日 06:00（新加坡时间）估值使用当时已保存的持仓。"},
   weights:{title:"ETF 成分权重",fields:weightsFields,prompt:"输入有来源的基金成分权重，例如 SPYM、NVDA、5.09。可只填关心的重叠标的。"},
   scenarios:{title:"压力情景设置",fields:stressFields,prompt:"输入百分比变化。负数表示下跌，外币冲击统一相对显示币种。"},
   rates:{title:"汇率设置",fields:rateFields,prompt:"以每 1 USD 兑换多少单位该币种录入。留空使用自动数据。前期汇率缺失时无法拆分该币种的汇率贡献。"},
@@ -447,7 +455,7 @@ function edit(mode) {
   const rows = mode==="rates" ? currencyList.filter(x=>x!=="USD").map(currency=>({currency,...portfolio.rates[currency]}))
     : structuredClone(portfolio[mode]);
   if (mode==="positions" && !rows.length) rows.push(defaultRow.positions());
-  editor = {mode, rows, date:portfolio.date};
+  editor = {mode, rows, date:portfolio.date, name:portfolio.name};
   by("editor-title").textContent = modes[mode].title;
   by("editor-error").textContent = "";
   by("editor-add").hidden = mode==="rates";
@@ -469,12 +477,13 @@ function editorField(row, key, label, kind) {
 }
 
 function renderEditor() {
-  const {mode,rows,date} = editor;
+  const {mode,rows,date,name} = editor;
   const {prompt,fields} = modes[mode];
   const contents = rows.map((row,i)=>'<tr data-edit-row="'+i+'">'+fields.map(([key,label,kind])=>td(editorField(row,key,label,kind))).join("")
     +(mode==="rates"?"":td('<button type="button" class="compact-button" aria-label="删除这一行" data-delete-row>×</button>'))+'</tr>').join("");
   by("editor-content").innerHTML = '<p class="work-note">'+esc(prompt)+'</p>'
-    +(mode==="positions"?'<div class="editor-fields"><label>价格日期（留空用最新汇率）<input type="date" id="portfolio-date" value="'+esc(date)+'"></label></div>':"")
+    +(mode==="positions"?'<div class="editor-fields"><label>组合名称<input type="text" id="portfolio-name" maxlength="'+portfolioNameLimit+'" value="'+esc(name)+'"></label>'
+      +'<label>价格日期（留空用最新汇率）<input type="date" id="portfolio-date" value="'+esc(date)+'"></label></div>':"")
     +'<div class="work-table-wrap"><table class="work-table editor-table"><thead><tr>'+fields.map(([,label])=>'<th scope="col">'+esc(label)+'</th>').join("")
     +(mode==="rates"?"":'<th scope="col"><span class="visually-hidden">操作</span></th>')+'</tr></thead><tbody>'+contents+'</tbody></table></div>';
 }
@@ -482,6 +491,7 @@ function renderEditor() {
 by("editor-content").addEventListener("input",event=>{
   const input = event.target;
   if (input.id==="portfolio-date") {editor.date=input.value;return;}
+  if (input.id==="portfolio-name") {editor.name=input.value;return;}
   const field = input.dataset.field;
   if (!field) return;
   const row = editor.rows[Number(input.closest("[data-edit-row]").dataset.editRow)];
@@ -500,10 +510,13 @@ by("editor-add").addEventListener("click",()=>{
 by("editor-form").addEventListener("submit",async event=>{
   event.preventDefault();
   try {
-    const {mode,rows,date} = editor;
+    const {mode,rows,date,name} = editor;
     const draft = {...portfolio};
     draft[mode] = mode==="rates" ? Object.fromEntries(rows.map(row=>[row.currency,row])) : rows;
-    if (mode==="positions") draft.date=date;
+    if (mode==="positions") {
+      draft.date=date;
+      draft.name=name;
+    }
     const next = normalizePortfolio(draft);
     if (demo) portfolio = next;
     else await writePortfolio(next);
@@ -516,16 +529,27 @@ by("editor-form").addEventListener("submit",async event=>{
 });
 
 function exportPortfolio() {
-  downloadJson("Market-Portfolio.json",portfolio);
+  const {name:savedName,...data} = portfolio;
+  const name = normalizePortfolioName(editor?.mode==="positions" ? editor.name : savedName);
+  const filenameName = name.replace(/[<>:"/\\|?*]+/g,"-").replace(/^[.\s-]+|[.\s-]+$/g,"") || defaultPortfolioName;
+  const formatter = new Intl.DateTimeFormat("en-CA",{year:"numeric",month:"2-digit",day:"2-digit",
+    hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"});
+  const {year,month,day,hour,minute,second} = Object.fromEntries(formatter.formatToParts(new Date()).map(({type,value})=>[type,value]));
+  const date = [year,month,day].join("-");
+  const time = [hour,minute,second];
+  const exportedAt = date+"T"+time.join(":");
+  downloadJson("组合备份-"+filenameName+"-"+date+"_"+time.join("-")+".json",{name,exportedAt,...data});
 }
 
 by("import-portfolio").addEventListener("change",async event=>{
   const [file] = event.target.files;
   if (!file) return;
   try {
-    if (file.size>1024*1024) throw new Error("持仓备份应小于 1 MB");
-    const imported = normalizePortfolio(JSON.parse(await file.text()));
-    await writePortfolio(imported);
+    if (file.size>2*1024*1024) throw new Error("持仓备份应小于 2 MB");
+    const raw = JSON.parse(await file.text());
+    const imported = normalizePortfolio(raw);
+    if (raw.navHistory != null && !imported.navHistory) throw new Error("备份中的估值持仓记录格式有误");
+    await writePortfolio(imported,imported.navHistory);
     orders = [];
     by("base-currency").value = portfolio.base;
     if (editorDialog.open) editorDialog.close();
@@ -664,7 +688,13 @@ drawOrders();
 draw();
 refreshLivePortfolio();
 openDatabase().finally(()=>{
-  if (!demo) recordNavHoldings(portfolio.positions);
+  if (!demo && !portfolio.navHistory) {
+    const initial = recordNavHoldings(portfolio,migrateNavHistory());
+    if (initial !== portfolio) {
+      portfolio = initial;
+      navStorageError = !localWrite(storageKeys.portfolio,portfolio);
+    }
+  }
   navInitialized = true;
   refreshNavHistory(portfolio,livePortfolio,demo);
 });

@@ -1,6 +1,6 @@
 "use strict";
 
-const navHoldingsKey = "market-portfolio-valuation-holdings-v1";
+const legacyNavHoldingsKey = "market-portfolio-valuation-holdings-v1";
 const navPointsKey = "market-portfolio-valuation-points-v1";
 const navDayMs = 86400000;
 const navDisplayDays = 30;
@@ -19,7 +19,7 @@ function latestNavCutoff(now) {
   return ready >= cutoff ? cutoff : cutoff-navDayMs;
 }
 
-function recordNavHoldings(positions, now = Date.now()) {
+function navHoldings(positions) {
   const grouped = new Map();
   for (const {kind,symbol,currency,quantity} of positions) {
     if (!(quantity > 0)) continue;
@@ -28,16 +28,72 @@ function recordNavHoldings(positions, now = Date.now()) {
     row.quantity += quantity;
     grouped.set(key,row);
   }
-  const holdings = [...grouped.keys()].sort().map(key=>grouped.get(key));
-  const schedule = localRead(navHoldingsKey,[]);
-  if (!schedule.length && !holdings.length) return;
-  if (JSON.stringify(schedule.at(-1)?.holdings) === JSON.stringify(holdings)) return;
+  return [...grouped.keys()].sort().map(key=>grouped.get(key));
+}
+
+function navSnapshot(holdings) {
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,"0")).join("");
+  return {id,holdings};
+}
+
+function validNavDate(date) {
+  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const cutoff = navCutoff(date);
+  return fnum(cutoff) && navDate(cutoff) === date;
+}
+
+function normalizeNavHistory(raw) {
+  if (!Array.isArray(raw?.snapshots) || raw.snapshots.length > navDisplayDays+3) return null;
+  const read = row => {
+    if (!/^[0-9a-f]{32}$/.test(row?.id ?? "") || !Array.isArray(row.holdings) || row.holdings.length > 400) return null;
+    if (!row.holdings.every(item=>item && Object.hasOwn(assetKinds,item.kind) && currencyValid(item.currency)
+      && typeof item.symbol === "string" && symbolValid(item.symbol) && fnum(item.quantity) && item.quantity > 0)) return null;
+    return {id:row.id,holdings:navHoldings(row.holdings)};
+  };
+  const snapshots = new Map();
+  for (const row of raw.snapshots) {
+    const snapshot = read(row);
+    if (!snapshot || !validNavDate(row.date)) return null;
+    snapshots.set(row.date,{...snapshot,date:row.date});
+  }
+  const reference = read(raw.reference);
+  return {reference:reference?.holdings.length ? reference : null,
+    snapshots:[...snapshots.values()].sort((a,b)=>a.date.localeCompare(b.date))};
+}
+
+function recordNavHoldings(state, previous = state.navHistory, now = Date.now()) {
+  const holdings = navHoldings(state.positions);
+  if (!previous && !holdings.length) return state;
+  const schedule = previous?.snapshots ?? [];
   const today = navDate(now);
   const date = now <= navCutoff(today) ? today : navDate(now + navDayMs);
-  const oldest = navDate(now - navDisplayDays * navDayMs);
+  const oldest = navDate(latestNavCutoff(now)-(navDisplayDays-1)*navDayMs);
   const anchor = schedule.findLast(row=>row.date<oldest);
-  const retained = schedule.filter(row=>row.date>=oldest && row.date<date);
-  navStorageError = !localWrite(navHoldingsKey,[...(anchor?[anchor]:[]),...retained,{date,holdings}]);
+  let snapshots = schedule.filter(row=>row.date>=oldest || row===anchor);
+  const applicable = snapshots.findLast(row=>row.date<=date);
+  if (JSON.stringify(applicable?.holdings) !== JSON.stringify(holdings)) {
+    snapshots = [...snapshots.filter(row=>row.date<date),{...navSnapshot(holdings),date},...snapshots.filter(row=>row.date>date)];
+  }
+  const reference = previous?.reference ?? (holdings.length ? navSnapshot(holdings) : null);
+  return {...state,navHistory:{reference,snapshots}};
+}
+
+function migrateNavHistory() {
+  const rows = localRead(legacyNavHoldingsKey,[]);
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const history = normalizeNavHistory({snapshots:rows.slice(-(navDisplayDays+2)).filter(row=>validNavDate(row?.date)
+    && Array.isArray(row?.holdings)).map(({date,holdings})=>({...navSnapshot(holdings),date}))});
+  if (!history?.snapshots.length) return null;
+  const book = localRead(navPointsKey,{});
+  for (const [base,points] of Object.entries(book)) {
+    if (!Array.isArray(points)) continue;
+    book[base] = points.map(point=>{
+      const snapshot = history.snapshots.findLast(row=>row.date<=point.date);
+      return point.basis || !snapshot ? point : {...point,basis:snapshot.id};
+    });
+  }
+  localWrite(navPointsKey,book);
+  return history;
 }
 
 function navPricesNeeded(days, base) {
@@ -69,15 +125,24 @@ function navPoint(date, holdings, base, prices) {
     if (!(price > 0 && currencyRate > 0 && baseRate > 0)) return null;
     total += row.quantity * price * baseRate / currencyRate;
   }
-  return holdings.length && fnum(total) ? {date,value:total} : null;
+  return fnum(total) ? {date,value:total} : null;
 }
 
-function navDays(schedule, existing, now) {
+function navDays(history, now) {
+  if (!history) return [];
   const end = latestNavCutoff(now);
-  const dates = new Set(existing.map(row=>row.date));
   return Array.from({length:navDisplayDays},(_,i)=>navDate(end-(navDisplayDays-1-i)*navDayMs)).flatMap(date=>{
-    const holdings = schedule.findLast(row=>row.date<=date)?.holdings;
-    return holdings?.length && !dates.has(date) ? [{date,holdings}] : [];
+    const saved = history.snapshots.findLast(row=>row.date<=date);
+    const snapshot = saved ?? history.reference;
+    return snapshot ? [{date,holdings:snapshot.holdings,basis:snapshot.id,estimated:!saved}] : [];
+  });
+}
+
+function navSavedPoints(base, days) {
+  const cached = new Map((localRead(navPointsKey,{})[base] ?? []).map(row=>[row.date,row]));
+  return days.flatMap(({date,basis,estimated})=>{
+    const point = cached.get(date);
+    return point?.basis === basis && fnum(point.value) ? [{...point,estimated}] : [];
   });
 }
 
@@ -85,9 +150,9 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
   if (isDemo || navBusy) return;
   const now = Date.now();
   const base = state.base;
-  const existing = localRead(navPointsKey,{})[base] ?? [];
-  const schedule = localRead(navHoldingsKey,[]);
-  const days = navDays(schedule,existing,now);
+  const windowDays = navDays(state.navHistory,now);
+  const existing = new Set(navSavedPoints(base,windowDays).map(row=>row.date));
+  const days = windowDays.filter(row=>!existing.has(row.date));
   if (!automatic || !days.length) {
     navMessage = automatic ? "" : "开启自动行情后更新历史估值。";
     return renderNavHistory(base,isDemo);
@@ -116,12 +181,15 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
         // A missing symbol leaves its affected days open for a later retry.
       }
     }
-    const added = days.map(({date,holdings})=>navPoint(date,holdings,base,prices)).filter(Boolean);
+    const added = days.flatMap(({date,holdings,basis})=>{
+      const point = navPoint(date,holdings,base,prices);
+      return point ? [{...point,basis}] : [];
+    });
     if (added.length) {
       const book = localRead(navPointsKey,{});
-      const merged = new Map(added.map(row=>[row.date,row]));
-      for (const row of book[base] ?? []) merged.set(row.date,row);
-      book[base] = [...merged.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-365);
+      const merged = new Map((book[base] ?? []).map(row=>[row.date,row]));
+      for (const row of added) merged.set(row.date,row);
+      book[base] = [...merged.values()].sort((a,b)=>a.date.localeCompare(b.date)).slice(-navDisplayDays);
       navStorageError = !localWrite(navPointsKey,book);
     }
     const missing = days.length-added.length;
@@ -135,23 +203,26 @@ async function refreshNavHistory(state, automatic, isDemo, force = false) {
 function renderNavHistory(base, isDemo) {
   by("nav-history").hidden = isDemo;
   if (isDemo) return;
-  const latest = latestNavCutoff(Date.now());
-  const firstAllowed = navDate(latest-(navDisplayDays-1)*navDayMs);
-  const rows = (localRead(navPointsKey,{})[base] ?? []).filter(row=>row.date>=firstAllowed);
+  const days = navDays(portfolio.navHistory,Date.now());
+  const rows = navSavedPoints(base,days);
   const first = rows[0], last = rows.at(-1);
-  const start = localRead(navHoldingsKey,[]).find(row=>row.holdings.length)?.date;
   by("nav-history-status").textContent = navStorageError ? "浏览器无法保存每日估值。"
-    : navMessage || (!first ? (start ? (start>=navDate(latest) ? "首个估值日 " + start : "近 30 天暂无完整估值") : "保存持仓后开始记录") : "");
+    : navMessage || (!first ? (days.length ? "近 30 天暂无完整估值" : "保存持仓后开始记录") : "");
   by("nav-history-data").hidden = !first;
   if (!first) return;
+  const recorded = rows.filter(row=>!row.estimated);
+  const period = recorded.length ? recorded : rows;
   let peak = 0, drawdown = 0;
-  for (const {value} of rows) {
+  for (const {value} of period) {
     peak = Math.max(peak,value);
     if (peak > 0) drawdown = Math.min(drawdown,value/peak-1);
   }
-  by("nav-history-summary").textContent = fmt(last.value) + " " + base
-    + (rows.length > 1 ? " · 区间变化 " + pctText((last.value/first.value-1)*100) + " · 最大回撤 " + pctText(drawdown*100) : "");
-  const floor = Math.min(...rows.map(row=>row.value)), ceiling = peak;
+  const change = period.length>1 && period[0].value>0
+    ? " · "+(recorded.length ? "记录区间" : "回算区间")+"变动 "+pctText((period.at(-1).value/period[0].value-1)*100)
+      +" · 最大回撤 "+pctText(drawdown*100) : "";
+  by("nav-history-summary").textContent = fmt(last.value) + " " + base + (last.estimated ? " · 回算" : "") + change;
+  const values = rows.map(row=>row.value);
+  const floor = Math.min(...values), ceiling = Math.max(...values);
   const width = 720, height = 135, pad = 10;
   const span = Math.max(navCutoff(last.date)-navCutoff(first.date),navDayMs);
   const points = rows.map(row=>({
@@ -160,12 +231,14 @@ function renderNavHistory(base, isDemo) {
   }));
   const lines = points.map((point,i)=>{
     const previous = points[i-1];
-    return previous && navCutoff(point.date)-navCutoff(previous.date)===navDayMs
-      ? '<line x1="'+previous.x+'" y1="'+previous.y+'" x2="'+point.x+'" y2="'+point.y+'"/>' : "";
+    return previous && previous.estimated===point.estimated && navCutoff(point.date)-navCutoff(previous.date)===navDayMs
+      ? '<line'+(point.estimated?' class="nav-estimated"':'')+' x1="'+previous.x+'" y1="'+previous.y+'" x2="'+point.x+'" y2="'+point.y+'"/>' : "";
   }).join("");
   by("nav-history-chart").innerHTML = '<svg viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none" role="img" aria-label="每日固定时点组合净值">'
-    +'<g class="nav-history-line">'+lines+'</g>'+points.map(({x,y,date,value})=>
-      '<circle cx="'+x+'" cy="'+y+'" r="2.7"><title>'+esc(date+" · "+fmt(value)+" "+base)+'</title></circle>').join("")+'</svg>';
+    +'<g class="nav-history-line">'+lines+'</g>'+points.map(({x,y,date,value,estimated})=>
+      '<circle'+(estimated?' class="nav-estimated"':'')+' cx="'+x+'" cy="'+y+'" r="2.7"><title>'+esc(date+" · "+fmt(value)+" "+base+(estimated?" · 回算":" · 持仓记录"))+'</title></circle>').join("")+'</svg>';
   by("nav-history-dates").textContent = first.date === last.date ? last.date : first.date + " – " + last.date;
-  table("nav-history-table",["估值日","净值 · "+base],rows.slice().reverse().map(row=>[td(esc(row.date)),td(fmt(row.value))]));
+  table("nav-history-table",["估值日","净值 · "+base,"持仓依据"],rows.slice().reverse().map(row=>[
+    td(esc(row.date)),td(fmt(row.value)),td(row.estimated ? "回算" : "持仓记录"),
+  ]));
 }

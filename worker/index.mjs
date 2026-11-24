@@ -747,7 +747,8 @@ async function portfolioRoute(request, env, ownerSite) {
   if (request.headers.has("Origin") && request.headers.get("Origin") !== url.origin) return reply({error:"只允许同站保存"},403);
   if (!request.headers.get("Content-Type")?.startsWith("application/json")) return reply({error:"请求格式无效"},415);
   const body = await request.text();
-  if (new TextEncoder().encode(body).length > 200000) return reply({error:"持仓文件过大"},413);
+  const bytes = value => new TextEncoder().encode(value).length;
+  if (bytes(body) > 1700000) return reply({error:"持仓文件过大"},413);
   let update;
   try {update = JSON.parse(body);} catch {return reply({error:"请求格式无效"},400);}
   if (!Number.isSafeInteger(update?.version) || update.version < 0) return reply({error:"版本号无效"},400);
@@ -758,9 +759,12 @@ async function portfolioRoute(request, env, ownerSite) {
     if (!Array.isArray(data?.positions) || data.positions.length > 400 || data.positions.some(row=>!row || typeof row !== "object")) {
       return reply({error:"持仓格式无效"},400);
     }
+    const {navHistory,...draft} = data;
+    if (bytes(JSON.stringify({...update,portfolio:draft})) > 200000) return reply({error:"持仓文件过大"},413);
     command = env.DB.prepare("UPDATE portfolio_book SET draft_json=?, updated_at=?, version=version+1 WHERE id=1 AND version=?")
       .bind(JSON.stringify(data),now,update.version);
   } else if (update.mode === "publish" || update.mode === "unpublish") {
+    if (bytes(body) > 200000) return reply({error:"持仓文件过大"},413);
     const snapshot = update.mode === "publish" ? safePublicPortfolio(update.positions) : [];
     if (!snapshot) return reply({error:"持仓展示数据格式无效"},400);
     command = env.DB.prepare("UPDATE portfolio_book SET public_json=?, published_at=?, version=version+1 WHERE id=1 AND version=?")

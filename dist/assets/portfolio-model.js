@@ -12,10 +12,13 @@ const defaultScenarios = [
   {name:"利率再上行", core:-8, tech:-14, bank:-6, equity:-7, gold:-6, duration:-12, reserve:0, cash:0, fx:0},
   {name:"外币走弱", core:0, tech:0, bank:0, equity:0, gold:0, duration:0, reserve:0, cash:0, fx:-5},
 ];
-const blankPortfolio = () => ({base:"USD", date:"", positions:[], weights:[], rates:{}, scenarios:structuredClone(defaultScenarios)});
+const defaultPortfolioName = "我的投资组合";
+const portfolioNameLimit = 60;
+const blankPortfolio = () => ({name:defaultPortfolioName,base:"USD", date:"", positions:[], weights:[], rates:{}, scenarios:structuredClone(defaultScenarios)});
 const numeric = value => typeof value === "number" && Number.isFinite(value);
 const numberFromInput = value => value !== "" && value != null && Number.isFinite(Number(value)) ? Number(value) : null;
 const cleanText = (value, limit = 90) => String(value ?? "").trim().slice(0, limit);
+const normalizePortfolioName = name => (typeof name === "string" && cleanText(name.replace(/[\u0000-\u001f\u007f]/g," "),portfolioNameLimit)) || defaultPortfolioName;
 const symbolValid = symbol => /^\^?[A-Z0-9][A-Z0-9.=^\-]{0,18}$/.test(symbol);
 const currencyValid = currency => currencyList.includes(currency);
 const requiredText = (value, field) => {
@@ -91,9 +94,10 @@ function normalizePortfolio(raw) {
     }
     return result;
   });
-  return {base:currencyValid(raw.base) ? raw.base : "USD",
+  const navHistory = raw.navHistory ? normalizeNavHistory(raw.navHistory) : null;
+  return {name:normalizePortfolioName(raw.name),base:currencyValid(raw.base) ? raw.base : "USD",
     date:/^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : "",
-    positions, weights, rates, scenarios};
+    positions, weights, rates, scenarios, ...(navHistory ? {navHistory} : {})};
 }
 
 function effectiveRates(auto, manual) {
