@@ -79,7 +79,12 @@ function etfChanges(current, previous) {
 function renderEtfDisclosures(funds, weights, disclosures) {
   by("etf-disclosure").hidden = !funds.length;
   if (!funds.length) return;
-  table("etf-disclosure-table",["ETF","成分日期与来源","披露持仓变化"],funds.map(fund=>{
+  const displayed = new Set(funds);
+  for (const fund of funds) {
+    const reference = etfDisclosureSites[fund]?.reference;
+    if (reference) displayed.add(reference);
+  }
+  table("etf-disclosure-table",["ETF","成分日期与来源","披露持仓变化"],[...displayed].map(fund=>{
     const {automatic,manual,reference,useAutomatic} = etfWeightSource(fund,weights,disclosures);
     const site = etfDisclosureSites[fund];
     const link = (url,label)=>url ? '<a class="text-button" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+'</a>' : esc(label);
@@ -93,7 +98,7 @@ function renderEtfDisclosures(funds, weights, disclosures) {
     }
     const {source,url,current,previous,unavailable} = automatic;
     const origin = link(url,reference?reference+" 同指数参考":source);
-    const date = current.date+(unavailable?" · 沿用":"");
+    const date = current.date+" · "+current.rows.length+" 项"+(unavailable?" · 沿用":"");
     const otherLinks = reference ? alternatives : alternatives.slice(1);
     return [td(esc(fund)),td([esc(date),origin,...otherLinks].join(" · ")),td(esc((previous?previous.date+" → "+current.date+" · ":"")
       +etfChanges(current,previous)))];

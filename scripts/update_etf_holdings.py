@@ -19,7 +19,7 @@ SPDR = "https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings
 SPY_HOLDINGS = "https://www.ssga.com/library-content/products/fund-data/etfs/us/holdings-daily-us-en-spy.xlsx"
 SCHWAB = "https://www.schwabassetmanagement.com/allholdings/schd"
 SCHWAB_PRODUCT = "https://www.schwabassetmanagement.com/products/schd"
-INVESCO = "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/{cusip}/holdings/fund"
+INVESCO = "https://dng-api.invesco.com/cache/v1/accounts/en_US/shareclasses/{identifier}/holdings/fund"
 INVESCO_EXPORT = "https://www.invesco.com/us/financial-products/etfs/holdings?audienceType=Investor&action=download&ticker="
 QQQ_PRODUCT = "https://www.invesco.com/us/en/financial-products/etfs/invesco-qqq-trust-series-1.html"
 OUTPUT = Path(__file__).resolve().parents[1] / "dist/assets/etf-holdings.json"
@@ -124,16 +124,17 @@ def read_spdr(content):
 def read_holdings_csv(content, minimum, disclosed_date=None):
     rows = list(csv.reader(content.decode("utf-8-sig").splitlines()))
     ticker_names = {"holdingsticker", "holdingticker", "securityticker", "tickersymbol", "ticker", "symbol"}
-    weight_names = {"tna", "percentofassets", "percentofnetassets", "pctofnetassets", "portfolioallocation",
-                    "portfolioallocationpercent", "percentweight", "percentageoffund", "percentageofnetassets"}
+    weight_names = {"tna", "percentofassets", "percentassets", "percentoftotalnetassets", "percentofnetassets", "pctofnetassets", "portfolioallocation",
+                    "portfolioallocationpercent", "percentweight", "percentageoffund", "percentageofnetassets",
+                    "percentageoftotalnetassets"}
     for index, row in enumerate(rows):
-        columns = {key(value): pos for pos, value in enumerate(row)}
+        columns = {key(value.replace("%", " percent ")): pos for pos, value in enumerate(row)}
         ticker = next((pos for label, pos in columns.items() if label in ticker_names), None)
         weight = next((pos for label, pos in columns.items() if label in weight_names or "weight" in label), None)
         if ticker is None or weight is None:
             continue
         entries = [(row[ticker], row[weight]) for row in rows[index+1:] if len(row)>max(ticker,weight)]
-        date_column = next((pos for label, pos in columns.items() if label in {"asofdate","date","holdingsdate"}), None)
+        date_column = next((pos for label, pos in columns.items() if label in {"asofdate","date","holdingsdate","effectivedate"}), None)
         dates = {reading_date(row[date_column]) for row in rows[index+1:]
                  if date_column is not None and len(row)>date_column}
         dates.discard(None)
@@ -186,12 +187,15 @@ class HoldingTable(HTMLParser):
 def read_schwab():
     try:
         return read_schwab_export()
-    except (OSError,ValueError,csv.Error):
-        return read_schwab_pages()
+    except (OSError, ValueError, csv.Error) as export_error:
+        try:
+            return read_schwab_pages()
+        except (OSError, ValueError) as page_error:
+            raise ValueError(f"CSV: {export_error}; holdings pages: {page_error}") from page_error
 
 
 def read_schwab_pages():
-    entries, stamp = [], None
+    entries, stamp, total = [], None, None
     for page in range(5):
         table = HoldingTable(download(SCHWAB + f"?page={page}").decode())
         heading = re.search(r"As of\s+(\d+/\d+/\d+)\s+Displaying\s+(\d+)\s*-\s*(\d+)\s+of\s+(\d+)",
@@ -199,24 +203,35 @@ def read_schwab_pages():
         if not heading:
             raise ValueError("Schwab holdings date or page count unavailable")
         current = reading_date(heading[1])
-        if stamp and stamp != current:
+        start, end, count = map(int, heading.groups()[1:])
+        if (stamp and stamp != current) or (total is not None and total != count):
             raise ValueError("Schwab disclosure changed during download")
-        stamp = current
-        count = len(entries)
-        for row in table.rows:
-            if len(row) >= 6 and re.fullmatch(r"[A-Z0-9]{9}", row[1]):
-                entries.append((row[2], row[4]))
-        if len(entries)==count:
-            entries.extend(re.findall(r"\bCUSIP\s+[A-Z0-9]{9}\s+Symbol\s+(\S*)\s+Quantity\s+[\d,.%-]+\s+% of Assets\s+([\d.]+)%",
-                                      " ".join(table.text), re.I))
-        if len(entries)-count != int(heading[3])-int(heading[2])+1:
+        stamp, total = current, count
+        rows = [(row[2], row[4]) for row in table.rows
+                if len(row) >= 6 and re.fullmatch(r"[A-Z0-9]{9}", row[1])]
+        if not rows:
+            rows = re.findall(r"\bCUSIP\s+[A-Z0-9]{9}\s+Symbol\s+(\S*)\s+Quantity\s+[\d,.%-]+\s+% of Assets\s+([\d.]+)%",
+                              " ".join(table.text), re.I)
+        if start != len(entries)+1 or len(rows) != end-start+1:
             raise ValueError("Schwab holdings page incomplete")
-        if int(heading[3]) == int(heading[4]):
+        entries.extend(rows)
+        if end == total:
             return snapshot(stamp, entries, 90)
     raise ValueError("Schwab holdings page limit exceeded")
 
 
 def read_invesco(content):
+    data = json.loads(content)
+    if isinstance(data, dict) and isinstance(data.get("holdings"), list) and data.get("effectiveDate"):
+        entries = []
+        for row in data["holdings"]:
+            if not isinstance(row, dict):
+                continue
+            kind = key(row.get("securityTypeName", ""))
+            if kind in {"commonstock", "preferredstock"} or kind.startswith(("americandepositoryreceipt", "americandepositaryreceipt")):
+                entries.append((row.get("ticker"), row.get("percentageOfTotalNetAssets")))
+        if len(entries) >= 90 and any(weight is not None for _, weight in entries):
+            return snapshot(reading_date(data["effectiveDate"]), entries, 90)
     candidates = []
 
     def collect(node, stamp=None):
@@ -242,7 +257,7 @@ def read_invesco(content):
                         fields.update({key(name): value for name, value in fields[label].items()})
                 symbol = next((fields[label] for label in ("ticker", "tickersymbol", "securityticker", "holdingticker", "symbol") if fields.get(label)), None)
                 weight = next((value for label, value in fields.items() if ("weight" in label or label in
-                               {"pctofnetassets", "percentofnetassets", "percentofassets", "percentoftotal", "marketvaluepercent", "netassetpercentage", "netassetspercent", "pctnetassets", "marketvaluepct"})
+                               {"percentageoftotalnetassets", "pctofnetassets", "percentofnetassets", "percentofassets", "percentoftotal", "marketvaluepercent", "netassetpercentage", "netassetspercent", "pctnetassets", "marketvaluepct"})
                                and isinstance(value, (int, float, str))), None)
                 currency = fields.get("currency") or fields.get("currencycode") or fields.get("localcurrency")
                 if symbol and weight is not None and (not currency or currency == "USD"):
@@ -251,7 +266,7 @@ def read_invesco(content):
             if len(entries) >= 90 and len(row_dates) <= 1:
                 candidates.append((next(iter(row_dates), stamp), entries))
 
-    collect(json.loads(content))
+    collect(data)
     for stamp, entries in sorted(candidates, key=lambda item: (item[0] or "", len(item[1])), reverse=True):
         try:
             return snapshot(stamp, entries, 90)
@@ -260,15 +275,32 @@ def read_invesco(content):
     raise ValueError("Invesco holdings columns or disclosure date unavailable")
 
 
-def read_invesco_fund(ticker,cusip):
+def read_invesco_fund(ticker, cusip):
+    errors = []
+    identifiers = [(ticker, "ticker&interval=daily"), (cusip, "cusip")]
+    for identifier, query in identifiers:
+        url = INVESCO.format(identifier=identifier) + f"?idType={query}&productType=ETF"
+        try:
+            return read_invesco(download(url))
+        except (OSError, ValueError, KeyError, IndexError) as error:
+            errors.append(f"{identifier}: {error}")
     try:
-        return read_invesco(download(INVESCO.format(cusip=cusip)))
-    except (OSError,ValueError,KeyError,IndexError):
-        return read_holdings_csv(download(INVESCO_EXPORT+ticker),90)
+        return read_holdings_csv(download(INVESCO_EXPORT+ticker), 90)
+    except (OSError, ValueError, csv.Error) as error:
+        raise ValueError("; ".join([*errors, f"CSV: {error}"])) from error
 
 
-def update(output):
+def update(output, seed=None):
     funds = json.loads(output.read_text()).get("funds", {}) if output.exists() else {}
+    if seed:
+        for ticker, published in json.loads(seed.read_text()).get("funds", {}).items():
+            cached = funds.get(ticker, {})
+            current = published.get("current")
+            if current and current["date"] > (cached.get("current") or {}).get("date", ""):
+                history = [cached.get("current"), cached.get("previous"), published.get("previous")]
+                previous = max((row for row in history if row and row["date"] < current["date"]),
+                               key=lambda row: row["date"], default=None)
+                funds[ticker] = {**published, "previous": previous}
     sources = {
         "SPYM": ("State Street", "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-portfolio-sp-500-etf-spym", lambda: read_spdr(download(SPDR))),
         "SPY": ("State Street", "https://www.ssga.com/us/en/intermediary/etfs/state-street-spdr-sp-500-etf-trust-spy", lambda: read_spdr(download(SPY_HOLDINGS))),
@@ -283,7 +315,7 @@ def update(output):
             incoming = read()
         except (OSError, ValueError, KeyError, IndexError, ET.ParseError, csv.Error) as error:
             print(f"{ticker}: {error}")
-            funds[ticker] = {**old, "source": source, "url": url, "unavailable": True}
+            funds[ticker] = {"source": source, "url": url, **(old if current else {}), "unavailable": True}
             continue
         if current and incoming["date"] < current["date"]:
             continue
@@ -298,4 +330,6 @@ def update(output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=OUTPUT)
-    update(parser.parse_args().out)
+    parser.add_argument("--seed", type=Path)
+    args = parser.parse_args()
+    update(args.out, args.seed)

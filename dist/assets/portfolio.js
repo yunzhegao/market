@@ -23,7 +23,6 @@ const saveSimulationOrders = () => {if (!demo) localWrite(simulationOrdersKey,or
 let editor;
 let demo = false;
 let persistenceWarning = "";
-let importStatus = "";
 let databaseVersion = null;
 let pendingSave = false;
 let portfolioQuotes = localRead(portfolioQuoteKey,{});
@@ -412,7 +411,6 @@ function draw() {
     by("exit-demo").hidden = !demo;
   }
   const status = [
-    importStatus,
     demo ? "演示数据" : databaseVersion !== null ? "持仓已接入数据库" : "本机持仓",
     livePortfolio && !demo && report.values.some(row=>row.kind!=="cash")
       ? report.values.filter(portfolioQuote).length+" 项使用在线报价"
@@ -668,6 +666,7 @@ function mergePortfolioJournal(source) {
 
 const importButton = by("import-backup");
 const importInput = by("import-portfolio");
+const importFeedback = by("portfolio-import-status");
 importButton.addEventListener("click",()=>importInput.click());
 importInput.addEventListener("change",async ()=>{
   const [file] = importInput.files;
@@ -692,11 +691,13 @@ importInput.addEventListener("change",async ()=>{
     } else if (Array.isArray(raw?.holdings)) {
       throw new Error("识别为分析报表。请使用组合备份或「导出完整历史数据」的 JSON 导入持仓。");
     } else if (raw?.sourcePeriods && raw?.firstradeJournal) {
-      throw new Error("识别为券商对账归档。请使用配套的「组合备份」JSON。");
+      const companion = raw.localImportPortfolio;
+      const filename = typeof companion==="string" && /^组合备份-[^/\\\r\n]{1,180}\.json$/u.test(companion)
+        ? companion : "以「组合备份-」开头的配套 JSON";
+      throw new Error("识别为券商对账归档。要恢复持仓和流水，请导入 "+filename+"。");
     } else {
       throw new Error("无法识别。请选择组合备份、持仓、完整历史分析或流水 JSON。");
     }
-    importStatus = "导入成功 · 识别为"+type+" · "+result;
     if (type!=="流水") {
       orders = [];
       saveSimulationOrders();
@@ -706,11 +707,12 @@ importInput.addEventListener("change",async ()=>{
       refreshPortfolioQuotes();
     }
     draw();
+    importFeedback.textContent = "导入成功 · 识别为"+type+" · "+result;
   } catch(error) {
     const message = error instanceof SyntaxError ? "文件无法读取为 JSON。" : error.message;
-    importStatus = "导入失败 · "+message;
-    draw();
+    importFeedback.textContent = "导入失败 · "+message;
   } finally {
+    importFeedback.hidden = false;
     importInput.value = "";
     importButton.disabled = false;
   }
