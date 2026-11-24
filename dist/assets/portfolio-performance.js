@@ -2,27 +2,31 @@
 
 const performancePrices = new Map();
 const performanceRequests = new Map();
-const performanceView = {range:"month",plot:null,selected:null,rows:[],comparisons:{},visible:new Set(Object.keys(performanceBenchmarks))};
+const performanceView = {range:"month",mode:"total",plot:null,selected:null,rows:[],comparisons:{},visible:new Set(Object.keys(performanceBenchmarks))};
+const riskView = {range:"year",report:null};
+const rollingRiskView = {plot:null,selected:null};
 let performanceLoading = false;
 let performanceQueued = false;
+let performanceForceQueued = false;
 let performanceLastMessage = "";
 
 const performanceRiskMetrics = [
   ["volatility","年化波动率",true,"每日收益的样本标准差乘以 √252。数值越高，收益起伏越大。"],
   ["maximum","最大回撤",true,"区间内从累计收益高点到后续低点的最大跌幅。"],
-  ["sharpe","夏普比率",false,"每日平均超额收益除以每日收益波动率，再乘以 √252。此处无风险利率取 0%。"],
-  ["sortino","索提诺比率",false,"每日平均超额收益除以相对目标收益的下行偏差，再乘以 √252。目标收益取 0%，高于目标的日收益不计入下行偏差。"],
+  ["sharpe","夏普比率",false,"每期超额收益的均值除以其样本标准差，再乘以 √252。用当前显示币种的年化无风险率按实际日数折算。"],
+  ["sortino","索提诺比率",false,"每期平均超额收益除以相对最低目标收益的下行偏差，再乘以 √252。最低目标沿用同币种无风险率。"],
   ["beta","Beta",false,"组合和所选基准每日收益的协方差，除以基准收益方差。1 表示对基准的平均敏感度为一倍。"],
+  ["correlation","基准相关性",false,"对齐日期后的组合与基准日收益 Pearson 相关系数，范围 −1 至 +1。"],
   ["calmar","卡玛比率",false,"区间收益按日历天数几何年化，再除以最大回撤的绝对值。至少覆盖 90 个日历日。"],
-  ["var","单期 VaR 95%",true,"把观察到的单期收益排序，取最差 5% 样本中最轻的损失。至少需要 40 期。"],
-  ["cvar","单期 CVaR 95%",true,"最差 5% 样本的平均损失。与 VaR 一起显示历史尾部损失，至少需要 40 期。"],
-  ["upside","上行捕获率",true,"只取基准上涨期，组合的几何年化收益除以基准收益。至少需要 5 个上涨期。"],
-  ["downside","下行捕获率",true,"只取基准下跌期，组合的几何年化收益除以基准收益。当两者都下跌时，低于 100% 表示组合跌得更少。至少需要 5 个下跌期。"],
+  ["var","单期 VaR 95%",true,"把观察到的单期收益排序，取最差 5% 样本中最轻的损失。"],
+  ["cvar","单期 CVaR 95%",true,"最差 5% 样本的平均损失。"],
+  ["upside","上行捕获率",true,"只取基准上涨期，组合的几何年化收益除以基准收益。"],
+  ["downside","下行捕获率",true,"只取基准下跌期，组合的几何年化收益除以基准收益。当两者都下跌时，低于 100% 表示组合跌得更少。"],
 ];
 const performanceRiskDefinitions = [
   ...performanceRiskMetrics.map(([,label,,meaning])=>[label,meaning]),
   ["持仓波动风险贡献","单项持仓每期收益贡献与组合收益的协方差，除以组合收益方差。合计约 100%，负值表示该项在此区间分散了部分波动。"],
-  ["持仓相关性矩阵","按平均权重列出最多 12 项资产。每对使用两项同时持有且有报价的收益计算 Pearson 相关系数。+1 同向、−1 反向，至少需要 15 对观察值。"],
+  ["持仓相关性矩阵","按平均权重列出最多 12 项资产。每对使用两项同时持有且有报价的日收益计算 Pearson 相关系数。"],
 ];
 const performancePp = value => fnum(value) ? plus(value*100)+" pp" : "—";
 const performancePercent = value => fnum(value) ? fmt(value*100)+"%" : "—";
@@ -50,7 +54,8 @@ function updatePerformanceAccounts(accounts) {
 function performanceSymbols(state,from,to) {
   const symbols = new Set(performanceBenchmarkSymbols);
   if (state.base!=="USD") symbols.add(navFxSymbol(state.base));
-  const positions = [...state.positions,...performanceSchedule(state,from,to).flatMap(row=>row.holdings)];
+  const simulated = by("simulation-risk").open ? simulationAnalysis?.after?.values ?? [] : [];
+  const positions = [...state.positions,...simulated,...performanceSchedule(state,from,to).flatMap(row=>row.holdings)];
   for (const row of positions) {
     if (!(row.quantity>0)) continue;
     if (row.kind!=="cash") symbols.add(row.symbol);
@@ -62,7 +67,8 @@ function performanceSymbols(state,from,to) {
 async function refreshPerformance(force=false) {
   if (!navInitialized || demo || !hasApi || !livePortfolio || (!portfolio.positions.length && !portfolio.navHistory)) return;
   if (performanceLoading) {
-    performanceQueued ||= force;
+    performanceQueued = true;
+    performanceForceQueued ||= force;
     return;
   }
   const now = Date.now();
@@ -113,54 +119,67 @@ async function refreshPerformance(force=false) {
     performanceLoading = false;
     renderPerformance();
     if (performanceQueued) {
+      const force = performanceForceQueued;
       performanceQueued = false;
-      refreshPerformance(true);
+      performanceForceQueued = false;
+      refreshPerformance(force);
     }
   }
 }
 
 function showPerformancePoint() {
-  const {rows,comparisons,visible,selected,plot} = performanceView;
+  const {rows,comparisons,visible,selected,plot,mode} = performanceView;
   const index = Math.min(selected ?? rows.length-1,rows.length-1);
   const point = rows[index];
-  if (!point) return;
+  if (!point || !plot) return;
   const readings = [{label:"组合",color:"var(--chart-line)",value:point.value-1}];
   for (const [key,series] of Object.entries(comparisons)) {
-    if (visible.has(key) && series) readings.push({...performanceBenchmarks[key],value:series[index].value-1});
-  }
-  if (plot) {
-    const active = selected!==null;
-    const x = plot.x(index);
-    const y = plot.y((point.value-1)*100);
-    plot.guide.setAttribute("x1",x);
-    plot.guide.setAttribute("x2",x);
-    plot.guide.setAttribute("y1",plot.top);
-    plot.guide.setAttribute("y2",plot.bottom);
-    plot.guide.style.opacity = active ? "1" : "0";
-    plot.cursor.setAttribute("cx",x);
-    plot.cursor.setAttribute("cy",y);
-    plot.cursor.style.opacity = active ? "1" : "0";
-    plot.tip.hidden = !active;
-    if (active) {
-      plot.tipTime.textContent = point.date + " · 累计收益";
-      plot.tipValue.innerHTML = readings.map(({label,color,value})=>
-        '<span class="performance-tip-row"><i style="--series-color:'+color+'"></i><span>'+esc(label)+'</span><b class="'+tone(value)+'">'+esc(pctText(value*100))+'</b></span>'
-      ).join("");
-      placePlotTip(plot,x,y);
+    if ((mode==="excess" ? key===performanceReference() : visible.has(key)) && series) {
+      readings.push({...performanceBenchmarks[key],value:series[index].value-1});
     }
   }
+  const format = (value,relative) => relative ? performancePp(value) : pctText(value*100);
+  if (mode==="excess") readings.push({label:"超额收益",color:"var(--chart-line)",value:readings[0].value-readings[1].value,relative:true});
+  const active = selected!==null;
+  const x = plot.x(index);
+  const y = plot.y(plot.points[index][1]);
+  plot.guide.setAttribute("x1",x);
+  plot.guide.setAttribute("x2",x);
+  plot.guide.setAttribute("y1",plot.top);
+  plot.guide.setAttribute("y2",plot.bottom);
+  plot.guide.style.opacity = active ? "1" : "0";
+  plot.cursor.setAttribute("cx",x);
+  plot.cursor.setAttribute("cy",y);
+  plot.cursor.style.opacity = active ? "1" : "0";
+  plot.tip.hidden = !active;
+  if (active) {
+    plot.tipTime.textContent = point.date + (mode==="excess" ? "" : " · 累计收益");
+    plot.tipValue.innerHTML = readings.map(({label,color,value,relative})=>
+      '<span class="performance-tip-row"><i style="--series-color:'+color+'"></i><span>'+esc(label)+'</span><b class="'+tone(value)+'">'+esc(format(value,relative))+'</b></span>'
+    ).join("");
+    placePlotTip(plot,x,y);
+  }
   by("performance-readout").innerHTML = '<span>'+esc(point.date)+'</span>'
-    +readings.map(({label,value})=>'<span>'+esc(label)+' '+performanceSigned(value)+'</span>').join("");
+    +readings.map(({label,value,relative})=>'<span>'+esc(label)+' <strong class="'+tone(value)+'">'+esc(format(value,relative))+'</strong></span>').join("");
 }
 
 function drawPerformancePlot() {
-  const {rows,comparisons,visible} = performanceView;
+  const {rows,comparisons,visible,mode} = performanceView;
   if (!rows.length) return;
   const target = by("performance-chart");
-  performanceView.plot = drawMarketPlot(target,rows.map(row=>[navCutoff(row.date),(row.value-1)*100]),{
-    base:0,quietCursor:true,axisWidth:55,axisFormat:value=>fmt(value,1)+"%",
+  const excess = mode==="excess", benchmark = comparisons[performanceReference()];
+  by("performance-legend").hidden = excess;
+  target.hidden = excess && !benchmark;
+  by("performance-readout").hidden = target.hidden;
+  by("performance-excess-note").hidden = !excess;
+  by("performance-excess-note").textContent = target.hidden ? "所选基准缺少同区间行情，无法显示超额收益。"
+    : "组合累计收益减去 "+performanceBenchmarks[performanceReference()].label+" 的累计收益，单位为百分点。";
+  if (target.hidden) {performanceView.plot=null;return;}
+  const points = rows.map((row,i)=>[navCutoff(row.date),(row.value-(excess?benchmark[i].value:1))*100]);
+  performanceView.plot = drawMarketPlot(target,points,{
+    base:0,quietCursor:true,axisWidth:60,axisFormat:value=>fmt(value,1)+(excess?" pp":"%"),
     axisLabel:row=>navDate(row[0]).slice(5).replace("-","/"),
-    overlays:Object.entries(comparisons).filter(([key,series])=>visible.has(key)&&series).map(([key,series])=>({
+    overlays:excess ? [] : Object.entries(comparisons).filter(([key,series])=>visible.has(key)&&series).map(([key,series])=>({
       color:performanceBenchmarks[key].color,values:series.map(row=>(row.value-1)*100),
     })),
   });
@@ -200,7 +219,7 @@ function renderPerformanceAccounts(accounts,from,to,base) {
     const change = rows.at(-1).value/rows[0].value-1;
     const drawdown = performanceDrawdown(rows);
     const history = {rows,simulated:rows.slice(1).filter(row=>row.estimated).length};
-    const volatility = performanceRisk(rows,null,drawdown)?.volatility;
+    const volatility = performanceRisk(rows,null,drawdown,null,{matrix:false})?.volatility;
     return [td(esc(name)),td(performanceSigned(change)),td(performancePercent(drawdown?.decline)),td(performancePercent(volatility)),td(esc(performanceProvenance(history)))];
   }));
 }
@@ -233,25 +252,97 @@ function renderPerformanceAttribution(result,drawdown,benchmark,base) {
     ...total.industries.map(([sector,value])=>[td(esc(sectorNames[sector])),td(performancePp(value)),td(performancePp(loss ? group.get(sector)??0 : null))]),
     [td("汇率影响"),td(performancePp(total.fx)),td(performancePp(loss?.fx))],
   ]);
+  return {total,loss};
 }
 
-function renderPerformanceRisk(result,bench,drawdown,account,status) {
-  const risk = result.rows.length>=2 ? performanceRisk(result.rows,bench,drawdown) : null;
+function riskMetricMissing(key,risk,bench,rate,rows) {
+  const min = performanceMinimum;
+  const required = key==="volatility" ? min.volatility : ["var","cvar"].includes(key) ? min.tail : min.ratios;
+  if (risk.observations<required) return "至少 "+required+" 期";
+  if (["sharpe","sortino"].includes(key) && rate===null) return "请填同币种无风险率";
+  if (key==="calmar" && performanceDaysBetween(rows[0].date,rows.at(-1).date)<90) return "至少 90 个日历日";
+  if (["beta","correlation","upside","downside"].includes(key) && !bench) return "缺少基准报价";
+  const direction = key==="upside" ? 1 : key==="downside" ? -1 : 0;
+  if (direction && bench.slice(1).filter(row=>row.change*direction>0).length<min.capture) {
+    return "至少 "+min.capture+" 个基准"+(direction>0?"上涨":"下跌")+"期";
+  }
+  return "分母无有效波动或回撤";
+}
+
+function historicalAvailability() {
+  return demo ? "演示持仓未载入历史行情。" : !hasApi ? "历史分析需要配置行情接口。"
+    : !livePortfolio ? "开启自动行情后更新历史分析。" : performanceLoading ? "正在获取区间历史行情与汇率…"
+    : performanceLastMessage || "此区间暂无连续的有效收益样本。";
+}
+
+function renderRiskAnalysis() {
+  const base = portfolio.base, account = performanceScope();
+  const {from,to} = navRangeDates(riskView.range,Date.now());
+  const recordedOnly = by("risk-recorded").checked;
+  const result = demo ? {rows:[]} : performanceSeries(performanceSchedule(portfolio,from,to,account),base,performancePrices,{recordedOnly});
+  const {rows} = result, benchmark = performanceBenchmarks[performanceReference()];
+  const bench = performanceBenchmark(rows.map(row=>row.date),base,performancePrices,benchmark.mix);
+  const drawdown = performanceDrawdown(rows), rate = analysisAnnualRate(base);
+  const risk = performanceRisk(rows,bench,drawdown,rate);
+  riskView.report = {requested:{from,to},recordedOnly,result,bench,drawdown,rate,risk};
   by("risk-account").textContent = account ?? "全部账户";
-  by("risk-status").textContent = risk ? result.rows[0].date+" – "+result.rows.at(-1).date+" · "+risk.observations+" 期"
-    +" · "+performanceProvenance(result)+(bench?" · 基准 "+performanceBenchmarks[performanceReference()].label:" · 所选基准缺少报价")
-    : result.rows.length>=2 ? "当前有效收益样本 "+(result.rows.length-1)+" 期，风险指标至少需要 15 期。"
-    : status;
+  by("risk-rate-currency").textContent = base;
+  if (document.activeElement!==by("risk-free-rate") || by("risk-free-rate").dataset.currency!==base) {
+    by("risk-free-rate").value = rate===null ? "" : +(rate*100).toFixed(6);
+    by("risk-free-rate").dataset.currency = base;
+  }
+  const notes = risk ? [rows[0].date+" – "+rows.at(-1).date,base,risk.observations+" 期",performanceProvenance(result),
+    bench?benchmark.label:"所选基准缺少报价",rate===null?"无风险率待填":"无风险率 "+performancePercent(rate)]
+    : [recordedOnly && !performanceLoading && result.expected<2 ? "区间内基于持仓记录的估值点不足两个。" : historicalAvailability()];
+  if (result.missing?.length) notes.push("缺少 "+result.missing.slice(0,5).join("、"));
+  by("risk-status").textContent = notes.join(" · ");
   by("risk-data").hidden = !risk;
-  if (!risk) return;
-  by("risk-metrics").innerHTML = performanceRiskMetrics.map(([key,label,pct])=>
-    '<div><dt>'+esc(label)+'</dt><dd>'+(pct?performancePercent(risk[key]):fmt(risk[key]))+'</dd></div>').join("");
-  table("risk-contribution",["持仓","平均权重","风险占比"],risk.assets.map(row=>[
-    td(esc(row.label)),td(performancePercent(row.weight)),td(performancePercent(row.risk)),
-  ]));
-  table("risk-correlation",["持仓",...risk.top.map(row=>row.label)],risk.matrix.map((row,i)=>[
-    td(esc(risk.top[i].label)),...row.map(value=>td(fmt(value),value>.65?"risk-aligned":value<-.45?"risk-inverse":"")),
-  ]));
+  if (!risk) {
+    rollingRiskView.plot = null;
+    return;
+  }
+  by("risk-metrics").innerHTML = performanceRiskMetrics.map(([key,label,pct])=>{
+    const value = risk[key];
+    const why = fnum(value) ? "" : '<small>'+esc(riskMetricMissing(key,risk,bench,rate,rows))+'</small>';
+    return '<div><dt>'+esc(label)+'</dt><dd>'+(pct?performancePercent(value):fmt(value))+'</dd>'+why+'</div>';
+  }).join("");
+  const threshold = performanceMinimum.ratios;
+  const enough = risk.observations>=threshold;
+  const frame = enough ? "" : "至少需要 "+threshold+" 期。当前 "+risk.observations+" 期。";
+  by("risk-contribution-note").textContent = frame;
+  by("risk-correlation-note").textContent = frame;
+  by("risk-contribution-wrap").hidden = !enough;
+  by("risk-correlation-wrap").hidden = !enough;
+  if (enough) {
+    table("risk-contribution",["持仓","平均资金权重","波动风险占比"],risk.assets.map(row=>[
+      td(esc(row.label)),td(performancePercent(row.weight)),td(performancePercent(row.risk)),
+    ]));
+    table("risk-correlation",["持仓",...risk.top.map(row=>row.label)],risk.matrix.map((row,i)=>[
+      td(esc(risk.top[i].label)),...row.map(value=>td(fmt(value),value>.65?"risk-aligned":value<-.45?"risk-inverse":"")),
+    ]));
+  }
+  renderRollingRisk();
+}
+
+function showRollingRiskPoint() {
+  const format = by("risk-rolling-metric").value==="beta" ? fmt : performancePercent;
+  plotPoint(rollingRiskView,by("risk-rolling-readout"),format);
+}
+
+function renderRollingRisk() {
+  if (!by("risk-rolling").open || !riskView.report?.risk) return;
+  const metric = by("risk-rolling-metric").value;
+  const target = by("risk-rolling-chart");
+  const {result,bench} = riskView.report;
+  const values = performanceRolling(result.rows,bench,metric);
+  target.hidden = !values.length;
+  by("risk-rolling-status").textContent = values.length ? ""
+    : metric==="beta" && !bench ? "滚动 Beta 需要同区间基准报价。" : "每个滚动值需要 "+performanceMinimum.rolling+" 期有效样本。";
+  rollingRiskView.plot = drawMarketPlot(target,values.map(row=>[navCutoff(row.date),row.value]),{
+    quietCursor:true,axisWidth:55,axisFormat:metric==="beta" ? value=>fmt(value,2) : value=>performancePercent(value),
+    pointLabel:row=>navDate(row[0]),axisLabel:row=>navDate(row[0]).slice(5).replace("-","/"),
+  });
+  showRollingRiskPoint();
 }
 
 function renderPerformance() {
@@ -270,44 +361,71 @@ function renderPerformance() {
   }));
   const benchmark = comparisons[performanceReference()];
   const drawdown = performanceDrawdown(rows);
-  const availability = demo ? "演示持仓未载入历史行情。" : !hasApi ? "历史分析需要配置行情接口。"
-    : !livePortfolio ? "开启自动行情后更新历史分析。" : performanceLoading ? "正在获取区间历史行情与汇率…"
-    : performanceLastMessage || "此区间暂无连续的有效收益样本。";
   const requested = rows.length<result.expected ? " · 有效估值 "+rows.length+" / "+result.expected+" 个时点" : "";
   const missing = result.missing?.length ? " · 缺少 "+result.missing.slice(0,5).join("、")+(result.missing.length>5?" 等报价或汇率":" 的报价或汇率") : "";
-  const status = rows.length<2 ? availability+missing
+  const status = rows.length<2 ? historicalAvailability()+missing
     : rows[0].date+" – "+rows.at(-1).date+" · "+base+" · "+performanceProvenance(result)+requested
       +(benchmarkMissing.length ? " · 基准缺项："+benchmarkMissing.join("、") : "")+missing
       +(performanceLastMessage ? " · "+performanceLastMessage : "");
   by("performance-status").textContent = status;
   by("performance-data").hidden = rows.length<2;
-  renderPerformanceRisk(result,benchmark,drawdown,account,status);
+  renderRiskAnalysis();
+  renderSimulationRisk();
+  Object.assign(performanceView,{rows,comparisons,result,drawdown,attribution:null,requested:{from,to}});
   if (rows.length<2) {
     performanceView.rows = [];
     performanceView.plot = null;
     return;
   }
-  Object.assign(performanceView,{rows,comparisons});
   renderPerformanceLegend();
   drawPerformancePlot();
-  renderPerformanceAttribution(result,drawdown,benchmark,base);
+  performanceView.attribution = renderPerformanceAttribution(result,drawdown,benchmark,base);
   renderPerformanceAccounts(accounts,from,to,base);
 }
 
 function initPerformance() {
   by("performance-benchmark").innerHTML = Object.entries(performanceBenchmarks).map(([key,row])=>'<option value="'+key+'">'+esc(row.label)+'</option>').join("");
   by("performance-benchmark").value = "spyMix";
-  const ranges = [...document.querySelectorAll("[data-performance-range]")];
-  for (const button of ranges) button.addEventListener("click",()=>{
-    const range = button.dataset.performanceRange;
-    if (range===performanceView.range) return;
-    performanceView.range = range;
+  const choices = (attribute,view,field,render)=>{
+    const buttons = [...document.querySelectorAll("["+attribute+"]")];
+    for (const button of buttons) button.addEventListener("click",()=>{
+      const value = button.getAttribute(attribute);
+      if (value===view[field]) return;
+      view[field] = value;
+      for (const option of buttons) option.setAttribute("aria-pressed",String(option===button));
+      render();
+    });
+  };
+  choices("data-performance-range",performanceView,"range",()=>{
     performanceView.selected = null;
-    for (const option of ranges) option.setAttribute("aria-pressed",String(option===button));
     renderPerformance();
   });
+  choices("data-performance-mode",performanceView,"mode",()=>{
+    performanceView.selected = null;
+    drawPerformancePlot();
+  });
+  choices("data-risk-range",riskView,"range",()=>{
+    rollingRiskView.selected = null;
+    renderRiskAnalysis();
+    renderSimulationRisk();
+  });
+  by("risk-recorded").addEventListener("change",()=>{
+    rollingRiskView.selected = null;
+    renderRiskAnalysis();
+  });
+  by("risk-rolling").addEventListener("toggle",()=>{if(by("risk-rolling").open) renderRollingRisk();});
+  by("risk-rolling-metric").addEventListener("change",()=>{
+    rollingRiskView.selected = null;
+    renderRollingRisk();
+  });
+  const rolling = by("risk-rolling-chart");
+  bindPlot(rolling,rollingRiskView,showRollingRiskPoint);
+  new ResizeObserver(()=>{
+    if (rollingRiskView.plot && (rolling.clientWidth!==rollingRiskView.plot.width || rolling.clientHeight!==rollingRiskView.plot.height)) renderRollingRisk();
+  }).observe(rolling);
   for (const id of ["performance-account","performance-benchmark"]) by(id).addEventListener("change",()=>{
     performanceView.selected = null;
+    rollingRiskView.selected = null;
     renderPerformance();
   });
   by("performance-accounts").addEventListener("toggle",()=>{
@@ -321,7 +439,7 @@ function initPerformance() {
   });
   by("risk-method").innerHTML = performanceRiskDefinitions.map(([label,meaning])=>
     '<div><dt>'+esc(label)+'</dt><dd>'+esc(meaning)+'</dd></div>').join("")
-    +'<div><dt>样本与年化</dt><dd>沿用历史表现所选账户和区间，至少使用 15 期，按每年 252 期折算。样本不足或计算无有效分母时显示「—」。</dd></div>';
+    +'<div><dt>样本与年化</dt><dd>账户和基准沿用历史表现。风险区间单独选择。每年按 252 期折算，样本不足时每项会标注所需期数。</dd></div>';
   const chart = by("performance-chart");
   bindPlot(chart,performanceView,showPerformancePoint);
   new ResizeObserver(()=>{

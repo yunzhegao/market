@@ -285,7 +285,7 @@ function showAttribution(report) {
   by("portfolio-attribution").innerHTML = list("主要正贡献",gain)+list("主要负贡献",loss);
 }
 
-function showExposure(report) {
+function showExposure(report,sectors) {
   const rows = report.underlying.slice().sort((a,b)=>Number(b.direct>0&&b.indirect>0)-Number(a.direct>0&&a.indirect>0)||b.total-a.total);
   table("lookthrough-table",["标的","直接持有","ETF 间接持有","合计敞口","间接来源"],rows.slice(0,15).map(row=>[
     td(esc(row.symbol)),td(ratio(navWeight(row.direct,report.nav))),
@@ -295,13 +295,13 @@ function showExposure(report) {
   const funds = [...new Set(report.values.filter(isEquityFund).map(row=>row.symbol))].sort();
   by("lookthrough-coverage").textContent = "ETF 成分覆盖 "+ratio(report.coverage);
   by("lookthrough-note").textContent = (fnum(report.coverage)
-    ? "覆盖率按已计价股票型 ETF 市值加权。"
+    ? "覆盖率按已计价股票型 ETF 市值加权。其余成分敞口未知，表中合计为已知值。"
     : "暂无可计价的股票型 ETF。");
   renderEtfDisclosures(funds,portfolio.weights,demo?{}:etfDisclosures);
-  renderSectorExposure(report,portfolio,demo);
+  renderSectorExposure(report,sectors);
 }
 
-function compare(before,after) {
+function compare(before,after,beforeConcentration,afterConcentration) {
   const rows = [
     ["组合市值",before.nav,after?.nav,money],
     ["最大直接个股权重",before.concentration,after?.concentration,ratio,before.largest,after?.largest],
@@ -313,6 +313,19 @@ function compare(before,after) {
     td((right?'<small>'+esc(right)+'</small>':"")+format(b)),
     td(fnum(a)&&fnum(b)?(format===ratio?plus(b-a)+" pp":signedMoney(b-a)):"—"),
   ]);
+  for (const [key,{label}] of Object.entries(concentrationFields)) {
+    const first = beforeConcentration[key], last = afterConcentration?.[key];
+    const limit = analysisLimits[key];
+    const cell = item=>{
+      if (!item) return td("—");
+      const status = concentrationStatus(item,limit);
+      const notes = [item.names.join("、"),status].filter(Boolean).join(" · ");
+      const content = ratio(item.value)+'<small>'+esc(notes)+'</small>';
+      return td(status==="已超上限" ? '<span class="down">'+content+'</span>' : content);
+    };
+    metrics.push([td(esc(label)+'<small>上限 '+ratio(limit)+'</small>'),cell(first),cell(last),
+      td(fnum(first.value)&&fnum(last?.value) ? plus(last.value-first.value)+" pp" : "—")]);
+  }
   const beforeCash = before.cashAssets, afterCash = after?.cashAssets;
   const cashCell = cash => td(money(cashTotal(cash))+(cash
     ? '<small>'+esc(cashBreakdown(cash))+'</small><small>'+esc(usableCash(cash))+'</small>' : ""));
@@ -342,19 +355,22 @@ function compareExposure(before,after) {
   }),"已录入的 ETF 成分中暂无重叠");
 }
 
-function showSimulation(report,rates) {
+function showSimulation(report,rates,sectors=sectorExposure(report,portfolio,demo)) {
   const outcome = orders.length ? simulate(portfolioRowsNow(),orders) : null;
   const after = outcome?.positions ? analyzePortfolio(outcome.positions,rates) : null;
   const error = outcome?.errors.join(" ");
   by("simulation-error").textContent = error || "";
-  compare(report,after);
+  const beforeConcentration = concentrationSnapshot(report,sectors);
+  const afterConcentration = after ? concentrationSnapshot(after,sectorExposure(after,portfolio,demo)) : null;
+  compare(report,after,beforeConcentration,afterConcentration);
   compareExposure(report,after);
-  table("stress-table",["情景","操作前影响","操作后影响","变化"],portfolio.scenarios.map(scenario=>{
-    const before = stressResult(report,scenario,portfolio.base);
-    const next = after ? stressResult(after,scenario,portfolio.base) : null;
+  const stress = portfolio.scenarios.map(scenario=>({name:scenario.name,assumptions:scenario,
+    before:stressResult(report,scenario,portfolio.base),after:after ? stressResult(after,scenario,portfolio.base) : null}));
+  table("stress-table",["情景","操作前影响","操作后影响","变化"],stress.map(({name,before,after:next})=>{
     const display = (value,nav)=>signedMoney(value)+(nav>0&&fnum(value)?'<small>'+pctText(value/nav*100)+'</small>':"");
-    return [td(esc(scenario.name)),td(display(before,report.nav)),td(display(next,after?.nav)),td(fnum(before)&&fnum(next)?signedMoney(next-before):"—")];
+    return [td(esc(name)),td(display(before,report.nav)),td(display(next,after?.nav)),td(fnum(before)&&fnum(next)?signedMoney(next-before):"—")];
   }),"暂无压力情景");
+  updateSimulationAnalysis(report,after,beforeConcentration,afterConcentration,stress,outcome?.errors ?? []);
 }
 
 function draw() {
@@ -378,9 +394,11 @@ function draw() {
   if (overrides) status.push(overrides+" 个币种使用手动汇率");
   by("portfolio-status").textContent = status.filter(Boolean).join(" · ");
   by("public-portfolio").hidden = demo || !report.values.length;
+  by("export-analysis").hidden = !report.values.length && !portfolio.navHistory;
   if (report.values.length) {
-    showStats(report); renderAllocation(report,portfolio.base); showHoldings(report); showAttribution(report); showExposure(report); showSimulation(report,rates);
-  }
+    const sectors = sectorExposure(report,portfolio,demo);
+    showStats(report); renderAllocation(report,portfolio.base); showHoldings(report); showAttribution(report); showExposure(report,sectors); showSimulation(report,rates,sectors);
+  } else simulationAnalysis = null;
   renderNavHistory(portfolio.base,demo);
   renderPerformance();
 }
@@ -433,6 +451,8 @@ by("trade-list").addEventListener("input",event=>{
   orders[Number(event.target.closest("[data-order]").dataset.order)][name] = event.target.value;
   const rates = effectiveRates(autoRates,portfolio.rates);
   showSimulation(analyzePortfolio(portfolioRowsNow(),rates),rates);
+  renderSimulationRisk();
+  requestSimulationHistory();
 });
 by("add-trade").addEventListener("click",()=>{
   const account = portfolio.positions[0]?.account || "";
@@ -539,9 +559,8 @@ by("editor-form").addEventListener("submit",async event=>{
   } catch (error) {by("editor-error").textContent = error.message;}
 });
 
-function exportPortfolio() {
-  const {name:savedName,...data} = portfolio;
-  const name = normalizePortfolioName(editor?.mode==="positions" ? editor.name : savedName);
+function downloadPortfolioFile(prefix,rawName,data) {
+  const name = normalizePortfolioName(rawName);
   const filenameName = name.replace(/[<>:"/\\|?*]+/g,"-").replace(/^[.\s-]+|[.\s-]+$/g,"") || defaultPortfolioName;
   const formatter = new Intl.DateTimeFormat("en-CA",{year:"numeric",month:"2-digit",day:"2-digit",
     hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"});
@@ -549,7 +568,12 @@ function exportPortfolio() {
   const date = [year,month,day].join("-");
   const time = [hour,minute,second];
   const exportedAt = date+"T"+time.join(":");
-  downloadJson("组合备份-"+filenameName+"-"+date+"_"+time.join("-")+".json",{name,exportedAt,...data});
+  downloadJson(prefix+"-"+filenameName+"-"+date+"_"+time.join("-")+".json",{name,exportedAt,...data});
+}
+
+function exportPortfolio() {
+  const {name:savedName,...data} = portfolio;
+  downloadPortfolioFile("组合备份",editor?.mode==="positions" ? editor.name : savedName,data);
 }
 
 by("import-portfolio").addEventListener("change",async event=>{
@@ -703,6 +727,7 @@ const refreshLivePortfolio = (force = false)=>{
 by("refresh").addEventListener("click",()=>refreshLivePortfolio(true));
 initNavChart();
 initPerformance();
+initPortfolioAnalysis();
 drawOrders();
 draw();
 refreshLivePortfolio();

@@ -436,7 +436,7 @@ function renderNavHistory(base, isDemo) {
   const method = mode==="day" ? "日 K 的开收分别取前一日和当日 06:00 净值，高低取这两个值的范围。浅色标记回算。"
     : mode==="week" ? "周 K 按自然周等宽排列，取该周已有估值的首值、最高值、最低值和末值。浅色标记含回算的周。"
     : "虚线标记回算。缺少行情或汇率的日期留空。";
-  by("nav-history-method").textContent = method+" 净值含出入金。";
+  by("nav-history-method").textContent = method+" 本图衡量市值变化，含出入金，价格取估值时点前的可用报价。历史表现和风险分析使用复权收盘收益，按持仓快照衔接，并各自采用所选区间。";
   if (!last) {
     navView.plot = null;
     return;
@@ -449,9 +449,9 @@ function renderNavHistory(base, isDemo) {
     if (peak > 0) drawdown = Math.min(drawdown,value/peak-1);
   }
   const opening = period[0].value, closing = period.at(-1).value;
-  const change = period.length>1 ? " · "+(recorded.length ? "记录区间" : "回算区间")+"变动 "
+  const change = period.length>1 ? " · "+(recorded.length ? "记录市值变化" : "回算市值变化")+" "
     +'<span class="'+tone(closing-opening)+'">'+esc(navDelta(closing,opening))+'</span>'
-    +" · 最大回撤 "+esc(pctText(drawdown*100)) : "";
+    +" · 市值最大回撤 "+esc(pctText(drawdown*100))+"（"+esc(period[0].date+" – "+period.at(-1).date)+"）" : "";
   by("nav-history-summary").innerHTML = esc(fmt(last.value)+" "+base+(last.estimated?" · 回算":""))+change;
   drawNavPlot(rows,from,to,base);
   const dateLabel = from===to ? to : from+" – "+to;

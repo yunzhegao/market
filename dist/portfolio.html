@@ -8,18 +8,19 @@
   <title>个人投资组合分析 · 市场观察</title>
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/styles.css">
-  <link rel="stylesheet" href="./assets/workspace.css?v=performance-2">
+  <link rel="stylesheet" href="./assets/workspace.css?v=analysis-1">
   <script defer src="./assets/live-config.js"></script>
   <script defer src="./assets/world-snapshot.js"></script>
   <script defer src="./assets/portfolio-model.js"></script>
   <script defer src="./assets/workspace.js"></script>
   <script defer src="./assets/allocation.js?v=performance-1"></script>
   <script defer src="./assets/market-plot.js?v=performance-2"></script>
-  <script defer src="./assets/portfolio-nav.js?v=performance-2"></script>
-  <script defer src="./assets/portfolio-etf.js?v=performance-1"></script>
-  <script defer src="./assets/performance-model.js?v=performance-2"></script>
-  <script defer src="./assets/portfolio-performance.js?v=performance-2"></script>
-  <script defer src="./assets/portfolio.js?v=performance-1"></script>
+  <script defer src="./assets/portfolio-nav.js?v=analysis-1"></script>
+  <script defer src="./assets/portfolio-etf.js?v=analysis-1"></script>
+  <script defer src="./assets/performance-model.js?v=analysis-1"></script>
+  <script defer src="./assets/portfolio-performance.js?v=analysis-1"></script>
+  <script defer src="./assets/portfolio-analysis.js?v=analysis-1"></script>
+  <script defer src="./assets/portfolio.js?v=analysis-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -55,6 +56,7 @@
         <label class="quote-switch"><input type="checkbox" id="live-portfolio" checked>自动行情</label>
         <button type="button" class="compact-button pill-button" id="edit-rates">汇率</button>
         <button type="button" class="compact-button pill-button" id="public-portfolio" hidden>展示设置</button>
+        <button type="button" class="compact-button pill-button" id="export-analysis" hidden>导出分析</button>
         <button type="button" class="compact-button" id="exit-demo" hidden>退出演示</button>
         <button type="button" class="solid-button pill-button" id="edit-portfolio">编辑持仓</button>
       </div>
@@ -124,11 +126,16 @@
                 <button type="button" data-performance-range="mtd" aria-pressed="false">本月</button>
                 <button type="button" data-performance-range="ytd" aria-pressed="false">本年</button>
               </div>
+              <div class="segments" role="group" aria-label="历史表现图表类型">
+                <button type="button" data-performance-mode="total" aria-pressed="true">累计收益</button>
+                <button type="button" data-performance-mode="excess" aria-pressed="false">超额收益</button>
+              </div>
             </div>
           </div>
           <p id="performance-status" class="work-note" role="status"></p>
           <div id="performance-data" hidden>
             <div id="performance-legend" class="performance-legend" aria-label="显示基准曲线"></div>
+            <p class="work-note" id="performance-excess-note" hidden></p>
             <div id="performance-chart" class="chart" tabindex="0" role="group" aria-label="累计收益图，使用左右方向键查看收益"></div>
             <div id="performance-readout" class="chart-readout performance-readout" aria-live="polite"></div>
             <details class="work-method" id="performance-accounts" hidden>
@@ -202,6 +209,16 @@
             <div id="trade-list"></div>
             <p id="simulation-error" class="work-error" role="status"></p>
             <div class="work-table-wrap"><table class="work-table" id="simulation-table"></table></div>
+            <details class="work-method" id="simulation-risk" open hidden>
+              <summary>换仓前后历史风险</summary>
+              <p class="work-note">用操作前、后的参考市值权重回测整个组合，每期恢复各自目标权重，采用风险区间内双方共同有行情的连续日期。成交价格、费用和现金变化计入换仓后的起始权重。</p>
+              <p class="work-note" id="simulation-risk-status" role="status"></p>
+              <div class="work-table-wrap"><table class="work-table" id="simulation-risk-table"></table></div>
+              <details class="work-method" id="simulation-risk-assets" hidden>
+                <summary>持仓风险贡献变化</summary>
+                <div class="work-table-wrap"><table class="work-table" id="simulation-risk-contribution"></table></div>
+              </details>
+            </details>
             <details class="simulation-overlap" id="simulation-overlap" hidden>
               <summary>各标的重叠敞口变化</summary>
               <div class="work-table-wrap"><table class="work-table" id="simulation-exposure"></table></div>
@@ -215,22 +232,57 @@
           </section>
           <section class="panel work-panel" aria-labelledby="risk-title">
             <div class="section-line"><h2 id="risk-title">组合风险分析</h2><span id="risk-account"></span></div>
+            <div class="page-tools risk-controls">
+              <div class="segments" role="group" aria-label="风险分析区间">
+                <button type="button" data-risk-range="month" aria-pressed="false">1 月</button>
+                <button type="button" data-risk-range="quarter" aria-pressed="false">3 月</button>
+                <button type="button" data-risk-range="half" aria-pressed="false">半年</button>
+                <button type="button" data-risk-range="year" aria-pressed="true">1 年</button>
+              </div>
+              <label class="quote-switch"><input type="checkbox" id="risk-recorded">仅用持仓记录</label>
+            </div>
+            <div class="page-tools risk-controls">
+              <label for="risk-free-rate">年化无风险率（<span id="risk-rate-currency"></span>，%）</label>
+              <input id="risk-free-rate" type="number" min="-99.99" max="100" step="any" placeholder="未设置" aria-describedby="risk-rate-method">
+            </div>
             <p class="work-note" id="risk-status" role="status"></p>
             <div id="risk-data" hidden>
               <dl class="risk-metrics" id="risk-metrics"></dl>
               <details class="work-method" open>
                 <summary>持仓波动风险贡献</summary>
-                <div class="work-table-wrap"><table class="work-table" id="risk-contribution"></table></div>
+                <p class="work-note" id="risk-contribution-note"></p>
+                <div class="work-table-wrap" id="risk-contribution-wrap"><table class="work-table" id="risk-contribution"></table></div>
               </details>
               <details class="work-method">
                 <summary>持仓相关性矩阵</summary>
-                <div class="work-table-wrap"><table class="work-table risk-matrix" id="risk-correlation"></table></div>
+                <p class="work-note" id="risk-correlation-note"></p>
+                <div class="work-table-wrap" id="risk-correlation-wrap"><table class="work-table risk-matrix" id="risk-correlation"></table></div>
+              </details>
+              <details class="work-method" id="risk-rolling">
+                <summary>滚动风险</summary>
+                <div class="page-tools risk-controls">
+                  <label for="risk-rolling-metric">最近 60 期</label>
+                  <select id="risk-rolling-metric"><option value="volatility">年化波动率</option><option value="maximum">最大回撤</option><option value="beta">Beta</option></select>
+                </div>
+                <p class="work-note" id="risk-rolling-status"></p>
+                <div class="chart-readout" id="risk-rolling-readout" aria-live="polite"></div>
+                <div class="chart" id="risk-rolling-chart" tabindex="0" role="group" aria-label="滚动风险图，使用左右方向键查看数据"></div>
               </details>
             </div>
             <details class="work-method">
               <summary>风险指标说明</summary>
+              <p id="risk-rate-method">无风险率按显示币种分别保存，录入值作为整个区间的年化假设。留空时夏普和索提诺不出数值。</p>
               <dl class="risk-method" id="risk-method"></dl>
             </details>
+          </section>
+          <section class="panel work-panel" aria-labelledby="concentration-title">
+            <div class="section-line"><h2 id="concentration-title">组合集中度监控</h2></div>
+            <div class="concentration-grid">
+              <div><h3>最大个股敞口</h3><strong id="concentration-largest"></strong><small id="concentration-largest-status"></small><label>上限 % <input id="concentration-largest-limit" type="number" min="0" max="100" step="any"></label></div>
+              <div><h3>前三大个股敞口</h3><strong id="concentration-topThree"></strong><small id="concentration-topThree-status"></small><label>上限 % <input id="concentration-topThree-limit" type="number" min="0" max="100" step="any"></label></div>
+              <div><h3>金融行业敞口</h3><strong id="concentration-financial"></strong><small id="concentration-financial-status"></small><label>上限 % <input id="concentration-financial-limit" type="number" min="0" max="100" step="any"></label></div>
+            </div>
+            <p class="work-note">包含已知 ETF 间接持仓，分母为已计价组合总市值。缺少披露或报价时，预警按已知敞口判断。</p>
           </section>
         </div>
       </div>

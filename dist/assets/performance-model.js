@@ -7,6 +7,7 @@ const performanceBenchmarks = {
   qqqMix:{label:"60% QQQ + 40% BOXX",color:"var(--benchmark-qqq-mix)",mix:{QQQ:.6,BOXX:.4}},
 };
 const performanceBenchmarkSymbols = [...new Set(Object.values(performanceBenchmarks).flatMap(row=>Object.keys(row.mix)))];
+const performanceMinimum = {volatility:20,ratios:60,tail:100,capture:15,rolling:60};
 const performanceDay = date => new Date(date+"T00:00:00Z").getUTCDay();
 const performanceKey = row => row.kind+"/"+row.symbol+"/"+row.currency;
 const performanceLabel = row => row.kind==="cash" ? row.currency+" 现金" : row.symbol;
@@ -57,11 +58,12 @@ function performanceStep(start,end,base,series) {
       missing.push(performanceLabel(row));
       continue;
     }
-    const amount = row.quantity*(start.estimated ? a.splitClose : a.close)*a.fx;
+    const key = performanceKey(row);
+    const amount = start.weights?.get(key) ?? row.quantity*(start.estimated ? a.splitClose : a.close)*a.fx;
     const priceReturn = b.price/a.price-1;
     const move = (1+priceReturn)*b.fx/a.fx-1;
     value += amount;
-    lots.push({key:performanceKey(row),row,amount,move,priceReturn,fxReturn:move-priceReturn});
+    lots.push({key,row,amount,move,priceReturn,fxReturn:move-priceReturn});
   }
   if (missing.length || !(value>0)) return {missing};
   const parts = lots.map(({amount,...lot})=>{
@@ -72,11 +74,12 @@ function performanceStep(start,end,base,series) {
   return {date:end.date,parts,change,estimated:start.estimated};
 }
 
-function performanceSeries(schedule,base,prices) {
+function performanceSeries(schedule,base,prices,{recordedOnly=false}={}) {
   let block = [], best = [];
   const missing = new Set();
   for (let i=1;i<schedule.length;i++) {
     const start = schedule[i-1], end = schedule[i];
+    if (recordedOnly && start.estimated) {block=[];continue;}
     const step = performanceStep(start,end,base,prices);
     if (step.missing) {
       for (const symbol of step.missing) missing.add(symbol);
@@ -88,7 +91,8 @@ function performanceSeries(schedule,base,prices) {
     if (block.length>=best.length) best = block;
   }
   const simulated = best.slice(1).filter(row=>row.estimated).length;
-  return {rows:best,expected:schedule.length,simulated,missing:[...missing]};
+  const expected = recordedOnly ? schedule.filter(day=>!day.estimated).length : schedule.length;
+  return {rows:best,expected,simulated,missing:[...missing]};
 }
 
 function performanceBenchmark(dates,base,prices,mix) {
@@ -156,26 +160,30 @@ function performanceCorrelation(a,b) {
   return scale>1e-14 ? Math.min(1,Math.max(-1,performanceCovariance(a,b)/scale)) : null;
 }
 
-function performanceRisk(rows,benchmark,drawdown) {
+function performanceRisk(rows,benchmark,drawdown,annualRate=null,{matrix=true}={}) {
   const changes = rows.slice(1).map(row=>row.change);
-  if (changes.length<15) return null;
+  if (!changes.length) return null;
   const observations = changes.length, annual = Math.sqrt(252);
-  const average = performanceMean(changes);
+  const stable = observations>=performanceMinimum.ratios;
   const variance = performanceCovariance(changes,changes);
-  const std = Math.sqrt(variance);
-  const downside = Math.sqrt(performanceMean(changes.map(change=>Math.min(0,change)**2)));
+  const excess = stable && fnum(annualRate) && annualRate>-1 ? changes.map((change,i)=>{
+    const days = performanceDaysBetween(rows[i].date,rows[i+1].date);
+    return change-Math.expm1(Math.log1p(annualRate)*days/365);
+  }) : null;
+  const excessDeviation = excess ? Math.sqrt(performanceCovariance(excess,excess)) : null;
+  const downside = excess ? Math.sqrt(performanceMean(excess.map(change=>Math.min(0,change)**2))) : null;
   const elapsed = performanceDaysBetween(rows[0].date,rows.at(-1).date);
-  const cagr = elapsed>=90 ? rows.at(-1).value**(365.2425/elapsed)-1 : null;
+  const cagr = stable && elapsed>=90 ? (rows.at(-1).value/rows[0].value)**(365.2425/elapsed)-1 : null;
   const market = benchmark?.slice(1).map(row=>row.change);
   const marketVariance = market ? performanceCovariance(market,market) : null;
   const capture = positive=>{
     const pair = market?.flatMap((change,i)=>(positive ? change>0 : change<0) ? [[changes[i],change]] : []);
-    if (!pair || pair.length<5) return null;
+    if (!stable || !pair || pair.length<performanceMinimum.capture) return null;
     const compound = column=>Math.expm1(performanceMean(pair.map(row=>Math.log1p(row[column])))*252);
     const reference = compound(1);
     return Math.abs(reference)>1e-10 ? compound(0)/reference : null;
   };
-  const tail = observations>=40 ? changes.slice().sort((a,b)=>a-b).slice(0,Math.ceil(observations*.05)) : [];
+  const tail = observations>=performanceMinimum.tail ? changes.slice().sort((a,b)=>a-b).slice(0,Math.ceil(observations*.05)) : [];
   const lots = new Map();
   for (const [i,step] of rows.slice(1).entries()) {
     for (const part of step.parts) {
@@ -187,16 +195,60 @@ function performanceRisk(rows,benchmark,drawdown) {
     }
   }
   const assets = [...lots.values()].map(lot=>({...lot,weight:lot.weights/observations,
-    risk:variance>1e-14 ? performanceCovariance(lot.contribution,changes)/variance : null}));
-  const top = assets.slice().sort((a,b)=>b.weight-a.weight).slice(0,12);
-  const matrix = top.map(a=>top.map(b=>{
+    risk:stable && variance>1e-14 ? performanceCovariance(lot.contribution,changes)/variance : null}));
+  const top = matrix ? assets.slice().sort((a,b)=>b.weight-a.weight).slice(0,12) : [];
+  const correlations = top.map(a=>top.map(b=>{
     const paired = a.returns.flatMap((value,i)=>fnum(b.returns[i]) ? [[value,b.returns[i]]] : []);
-    return paired.length>=15 ? performanceCorrelation(paired.map(row=>row[0]),paired.map(row=>row[1])) : null;
+    return paired.length>=performanceMinimum.ratios ? performanceCorrelation(paired.map(row=>row[0]),paired.map(row=>row[1])) : null;
   }));
-  return {observations,volatility:std*annual,maximum:drawdown?.decline ?? null,
-    sharpe:std>1e-7 ? average/std*annual : null,sortino:downside>1e-7 ? average/downside*annual : null,
-    beta:marketVariance>1e-14 ? performanceCovariance(changes,market)/marketVariance : null,
+  return {observations,volatility:observations>=performanceMinimum.volatility ? Math.sqrt(variance)*annual : null,maximum:drawdown?.decline ?? null,
+    sharpe:excessDeviation>1e-7 ? performanceMean(excess)/excessDeviation*annual : null,
+    sortino:downside>1e-7 ? performanceMean(excess)/downside*annual : null,
+    beta:stable && marketVariance>1e-14 ? performanceCovariance(changes,market)/marketVariance : null,
+    correlation:stable && market ? performanceCorrelation(changes,market) : null,
     calmar:cagr!==null && drawdown?.decline<0 ? cagr/(-drawdown.decline) : null,
     var:tail.length ? Math.max(0,-tail.at(-1)) : null,cvar:tail.length ? Math.max(0,-performanceMean(tail)) : null,
-    upside:capture(true),downside:capture(false),assets:assets.sort((a,b)=>Math.abs(b.risk??0)-Math.abs(a.risk??0)),top,matrix};
+    upside:capture(true),downside:capture(false),assets:assets.sort((a,b)=>Math.abs(b.risk??0)-Math.abs(a.risk??0)),top,matrix:correlations};
+}
+
+function performanceRolling(rows,benchmark,metric) {
+  const count = performanceMinimum.rolling;
+  return rows.slice(count).flatMap((row,i)=>{
+    const changes = rows.slice(i+1,i+count+1).map(day=>day.change);
+    let value;
+    if (metric==="volatility") value = Math.sqrt(252*performanceCovariance(changes,changes));
+    else if (metric==="maximum") value = performanceDrawdown(rows.slice(i,i+count+1)).decline;
+    else if (benchmark) {
+      const market = benchmark.slice(i+1,i+count+1).map(day=>day.change);
+      const variance = performanceCovariance(market,market);
+      if (variance>1e-14) value = performanceCovariance(changes,market)/variance;
+    }
+    return fnum(value) ? [{date:row.date,value}] : [];
+  });
+}
+
+function performanceFixedSchedule(report,from,to) {
+  const holdings = navHoldings(report.values);
+  const weights = new Map();
+  if (!(report.nav>0) || report.values.some(row=>row.quantity>0 && !fnum(row.marketValue))) return [];
+  for (const row of report.values) {
+    const key = performanceKey(row);
+    if (row.quantity>0) weights.set(key,(weights.get(key) ?? 0)+row.marketValue/report.nav);
+  }
+  return performanceSchedule({positions:holdings},from,to).map(day=>({...day,weights}));
+}
+
+function performanceCompareTrades(before,after,from,to,base,prices,mix) {
+  const original = performanceFixedSchedule(before,from,to), adjusted = performanceFixedSchedule(after,from,to);
+  if (!original.length || !adjusted.length) return {missing:[],unpriced:true};
+  const joint = original.map((day,i)=>({...day,holdings:navHoldings([...day.holdings,...adjusted[i].holdings]),weights:null}));
+  const {rows,missing,expected} = performanceSeries(joint,base,prices);
+  if (rows.length<2) return {missing,expected};
+  const first = rows[0].date, last = rows.at(-1).date;
+  const benchmark = performanceBenchmark(rows.map(row=>row.date),base,prices,mix);
+  const calculate = days=>{
+    const series = performanceSeries(days.filter(day=>day.date>=first && day.date<=last),base,prices).rows;
+    return performanceRisk(series,benchmark,performanceDrawdown(series),null,{matrix:false});
+  };
+  return {from:first,to:last,expected,benchmarkAvailable:Boolean(benchmark),missing,before:calculate(original),after:calculate(adjusted)};
 }

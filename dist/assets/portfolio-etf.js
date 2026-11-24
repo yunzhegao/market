@@ -151,7 +151,7 @@ function createSectorLookup(state,isDemo) {
   };
 }
 
-function renderSectorExposure(report,state,isDemo) {
+function sectorExposure(report,state,isDemo) {
   const classify = createSectorLookup(state,isDemo);
   const sectors = new Map();
   const sources = new Set();
@@ -164,13 +164,16 @@ function renderSectorExposure(report,state,isDemo) {
       sectors.get(sector)[column] += weight*row.marketValue;
     }
   }
-  const entries = [...sectors].sort((a,b)=>b[1][0]+b[1][1]-a[1][0]-a[1][1]);
+  return {entries:[...sectors].sort((a,b)=>b[1][0]+b[1][1]-a[1][0]-a[1][1]),sources:[...sources].sort()};
+}
+
+function renderSectorExposure(report,{entries,sources}) {
   table("sector-exposure-table",["行业／资产类别","直接持有","ETF 敞口","合计敞口"],entries.map(([sector,[direct,through]])=>[
     td(esc(sectorNames[sector])),td(ratio(navWeight(direct,report.nav))),td(ratio(navWeight(through,report.nav))),
     td("<strong>"+ratio(navWeight(direct+through,report.nav))+"</strong>"),
   ]));
   by("sector-exposure-sources").innerHTML = "权重以已计价组合市值为分母。使用发行人最近披露的行业权重，或已知成分；缺项归入「行业未分类」。"
-    + [...sources].sort().map(symbol=>{
+    + sources.map(symbol=>{
       const record = etfSectors[symbol];
       return ' <a href="'+esc(record.url)+'" target="_blank" rel="noopener noreferrer">'+esc(symbol+" "+record.date+" · "+record.source)+'</a>';
     }).join("");

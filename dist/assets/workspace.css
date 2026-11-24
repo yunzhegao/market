@@ -352,6 +352,19 @@ a.world-cross-quote:is(:hover,:focus-visible) > span {color:var(--accent)}
 .risk-metrics>div {padding:.42rem .5rem;border:1px solid var(--line);border-radius:6px}
 .risk-metrics dt,.risk-method dd {font-size:.77rem;color:var(--muted)}
 .risk-metrics dd {margin:.12rem 0 0;font-weight:700;font-variant-numeric:tabular-nums}
+.risk-metrics small,.concentration-grid small {color:var(--muted);font-size:.7rem}
+.risk-controls {margin:.28rem 0}
+.risk-controls input[type="number"],.concentration-grid input {width:5.4rem}
+#risk-rolling-chart {height:clamp(128px,23dvh,193px)}
+#risk-contribution-note:empty,#risk-correlation-note:empty,#risk-rolling-status:empty {display:none}
+.concentration-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:.38rem}
+.concentration-grid>div {display:grid;align-content:start;gap:.18rem;min-width:0;padding:.45rem .5rem;border:1px solid var(--line);border-radius:6px}
+.concentration-grid h3 {margin:0;font-size:.75rem;font-weight:650}
+.concentration-grid strong {font-size:1rem;font-variant-numeric:tabular-nums}
+.concentration-grid small {min-height:2.2em;overflow-wrap:anywhere}
+.concentration-grid small.down {color:var(--down);font-weight:650}
+.concentration-grid label {display:flex;align-items:center;gap:.28rem;color:var(--muted);font-size:.7rem;white-space:nowrap}
+.concentration-grid input {min-width:0;width:4.2rem}
 .risk-method {margin:.32rem 0}
 .risk-method>div {display:grid;grid-template-columns:minmax(5.8rem,1fr) minmax(0,2.5fr);gap:.45rem;padding:.31rem 0;border-bottom:1px solid var(--line)}
 .risk-method dt {font-size:.77rem;font-weight:650}
