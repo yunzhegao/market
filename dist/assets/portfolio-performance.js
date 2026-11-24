@@ -2,7 +2,7 @@
 
 const performancePrices = new Map();
 const performanceRequests = new Map();
-const performanceView = {plot:null,selected:null,rows:[],comparisons:{},visible:new Set(Object.keys(performanceBenchmarks))};
+const performanceView = {range:"month",plot:null,selected:null,rows:[],comparisons:{},visible:new Set(Object.keys(performanceBenchmarks))};
 let performanceLoading = false;
 let performanceQueued = false;
 let performanceLastMessage = "";
@@ -120,26 +120,37 @@ async function refreshPerformance(force=false) {
 }
 
 function showPerformancePoint() {
-  const {rows,comparisons,visible,selected} = performanceView;
-  const point = rows[Math.min(selected ?? rows.length-1,rows.length-1)];
+  const {rows,comparisons,visible,selected,plot} = performanceView;
+  const index = Math.min(selected ?? rows.length-1,rows.length-1);
+  const point = rows[index];
   if (!point) return;
-  const {plot} = performanceView;
+  const readings = [{label:"组合",color:"var(--chart-line)",value:point.value-1}];
+  for (const [key,series] of Object.entries(comparisons)) {
+    if (visible.has(key) && series) readings.push({...performanceBenchmarks[key],value:series[index].value-1});
+  }
   if (plot) {
-    const index = rows.indexOf(point);
+    const active = selected!==null;
     const x = plot.x(index);
     const y = plot.y((point.value-1)*100);
     plot.guide.setAttribute("x1",x);
     plot.guide.setAttribute("x2",x);
     plot.guide.setAttribute("y1",plot.top);
     plot.guide.setAttribute("y2",plot.bottom);
-    plot.guide.style.opacity = selected===null ? "0" : "1";
+    plot.guide.style.opacity = active ? "1" : "0";
     plot.cursor.setAttribute("cx",x);
     plot.cursor.setAttribute("cy",y);
-    plot.cursor.style.opacity = selected===null ? "0" : "1";
+    plot.cursor.style.opacity = active ? "1" : "0";
+    plot.tip.hidden = !active;
+    if (active) {
+      plot.tipTime.textContent = point.date + " · 累计收益";
+      plot.tipValue.innerHTML = readings.map(({label,color,value})=>
+        '<span class="performance-tip-row"><i style="--series-color:'+color+'"></i><span>'+esc(label)+'</span><b class="'+tone(value)+'">'+esc(pctText(value*100))+'</b></span>'
+      ).join("");
+      placePlotTip(plot,x,y);
+    }
   }
-  by("performance-readout").innerHTML = '<span>'+esc(point.date)+'</span><span>组合 '+performanceSigned(point.value-1)+'</span>'
-    +Object.entries(comparisons).filter(([key,series])=>visible.has(key)&&series).map(([key,series])=>
-      '<span>'+esc(performanceBenchmarks[key].label)+' '+performanceSigned(series[rows.indexOf(point)].value-1)+'</span>').join("");
+  by("performance-readout").innerHTML = '<span>'+esc(point.date)+'</span>'
+    +readings.map(({label,value})=>'<span>'+esc(label)+' '+performanceSigned(value)+'</span>').join("");
 }
 
 function drawPerformancePlot() {
@@ -153,6 +164,7 @@ function drawPerformancePlot() {
       color:performanceBenchmarks[key].color,values:series.map(row=>(row.value-1)*100),
     })),
   });
+  performanceView.plot.tip.classList.add("performance-tip");
   showPerformancePoint();
 }
 
@@ -244,7 +256,7 @@ function renderPerformanceRisk(result,bench,drawdown,account,status) {
 
 function renderPerformance() {
   const now = Date.now();
-  const {from,to} = navRangeDates(navView.range,now);
+  const {from,to} = navRangeDates(performanceView.range,now);
   const accounts = performanceAccounts(portfolio);
   updatePerformanceAccounts(accounts);
   const account = performanceScope(), base = portfolio.base;
@@ -284,7 +296,16 @@ function renderPerformance() {
 
 function initPerformance() {
   by("performance-benchmark").innerHTML = Object.entries(performanceBenchmarks).map(([key,row])=>'<option value="'+key+'">'+esc(row.label)+'</option>').join("");
-  by("performance-benchmark").value = "mix";
+  by("performance-benchmark").value = "spyMix";
+  const ranges = [...document.querySelectorAll("[data-performance-range]")];
+  for (const button of ranges) button.addEventListener("click",()=>{
+    const range = button.dataset.performanceRange;
+    if (range===performanceView.range) return;
+    performanceView.range = range;
+    performanceView.selected = null;
+    for (const option of ranges) option.setAttribute("aria-pressed",String(option===button));
+    renderPerformance();
+  });
   for (const id of ["performance-account","performance-benchmark"]) by(id).addEventListener("change",()=>{
     performanceView.selected = null;
     renderPerformance();
@@ -304,6 +325,6 @@ function initPerformance() {
   const chart = by("performance-chart");
   bindPlot(chart,performanceView,showPerformancePoint);
   new ResizeObserver(()=>{
-    if (performanceView.plot && chart.clientWidth!==performanceView.plot.width) drawPerformancePlot();
+    if (performanceView.plot && (chart.clientWidth!==performanceView.plot.width || chart.clientHeight!==performanceView.plot.height)) drawPerformancePlot();
   }).observe(chart);
 }

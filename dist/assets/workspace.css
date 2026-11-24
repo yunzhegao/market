@@ -330,20 +330,24 @@ a.world-cross-quote:is(:hover,:focus-visible) > span {color:var(--accent)}
 
 /* Portfolio performance and risk */
 .performance-block {margin-top:.7rem;padding-top:.65rem;border-top:1px solid var(--line);
-  --benchmark-equity:#8655b9;--benchmark-cash:#596b7b;--benchmark-mix:#a45728}
-[data-theme="dark"] .performance-block {--benchmark-equity:#b39adb;--benchmark-cash:#9cacbd;--benchmark-mix:#dca173}
+  --benchmark-equity:#8655b9;--benchmark-nasdaq:#007b78;--benchmark-spy-mix:#a45728;--benchmark-qqq-mix:#a54a70}
+[data-theme="dark"] .performance-block {
+  --benchmark-equity:#b39adb;--benchmark-nasdaq:#65c2b5;--benchmark-spy-mix:#dca173;--benchmark-qqq-mix:#e39ac0}
 .performance-heading {flex-wrap:wrap;margin-bottom:.25rem}
 .performance-heading h3 {margin:0;font-size:1rem}
 .performance-heading .page-tools label {color:var(--muted);font-size:.8rem}
 .performance-legend,.performance-readout {display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .9rem}
 .performance-legend {margin:.4rem 0 .3rem;font-size:.8rem}
 .performance-benchmark {display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap}
-.performance-benchmark i {width:.85rem;height:2px;border-radius:2px;background:var(--series-color)}
+.performance-benchmark i,.performance-tip-row i {width:.85rem;height:2px;border-radius:2px;background:var(--series-color)}
 .performance-benchmark:has(:disabled) {color:var(--muted)}
 .performance-readout {min-height:1.6rem;justify-content:flex-start;font-variant-numeric:tabular-nums}
 .performance-readout .up,.performance-readout .down {font-weight:650}
 .performance-tables {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem}
 .performance-block #performance-chart {height:clamp(150px,26dvh,255px)}
+.performance-tip strong {display:grid;gap:.13rem;font-size:.72rem;font-weight:400}
+.performance-tip-row {display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:.38rem}
+.performance-tip-row b {font-weight:650;text-align:right}
 .risk-metrics {display:grid;grid-template-columns:repeat(auto-fit,minmax(106px,1fr));gap:.38rem;margin:.45rem 0 .6rem}
 .risk-metrics>div {padding:.42rem .5rem;border:1px solid var(--line);border-radius:6px}
 .risk-metrics dt,.risk-method dd {font-size:.77rem;color:var(--muted)}

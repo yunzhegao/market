@@ -2,8 +2,9 @@
 
 const performanceBenchmarks = {
   SPY:{label:"标普 500（SPY）",color:"var(--benchmark-equity)",mix:{SPY:1}},
-  BOXX:{label:"BOXX",color:"var(--benchmark-cash)",mix:{BOXX:1}},
-  mix:{label:"60% SPYM + 40% BOXX",color:"var(--benchmark-mix)",mix:{SPYM:.6,BOXX:.4}},
+  QQQ:{label:"纳指 100（QQQ）",color:"var(--benchmark-nasdaq)",mix:{QQQ:1}},
+  spyMix:{label:"60% SPY + 40% BOXX",color:"var(--benchmark-spy-mix)",mix:{SPY:.6,BOXX:.4}},
+  qqqMix:{label:"60% QQQ + 40% BOXX",color:"var(--benchmark-qqq-mix)",mix:{QQQ:.6,BOXX:.4}},
 };
 const performanceBenchmarkSymbols = [...new Set(Object.values(performanceBenchmarks).flatMap(row=>Object.keys(row.mix)))];
 const performanceDay = date => new Date(date+"T00:00:00Z").getUTCDay();

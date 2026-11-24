@@ -8,17 +8,17 @@
   <title>个人投资组合分析 · 市场观察</title>
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/styles.css">
-  <link rel="stylesheet" href="./assets/workspace.css?v=performance-1">
+  <link rel="stylesheet" href="./assets/workspace.css?v=performance-2">
   <script defer src="./assets/live-config.js"></script>
   <script defer src="./assets/world-snapshot.js"></script>
   <script defer src="./assets/portfolio-model.js"></script>
   <script defer src="./assets/workspace.js"></script>
   <script defer src="./assets/allocation.js?v=performance-1"></script>
-  <script defer src="./assets/market-plot.js?v=performance-1"></script>
-  <script defer src="./assets/portfolio-nav.js?v=performance-1"></script>
+  <script defer src="./assets/market-plot.js?v=performance-2"></script>
+  <script defer src="./assets/portfolio-nav.js?v=performance-2"></script>
   <script defer src="./assets/portfolio-etf.js?v=performance-1"></script>
-  <script defer src="./assets/performance-model.js?v=performance-1"></script>
-  <script defer src="./assets/portfolio-performance.js?v=performance-1"></script>
+  <script defer src="./assets/performance-model.js?v=performance-2"></script>
+  <script defer src="./assets/portfolio-performance.js?v=performance-2"></script>
   <script defer src="./assets/portfolio.js?v=performance-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
@@ -116,6 +116,14 @@
             <div class="page-tools">
               <label for="performance-account">账户</label><select id="performance-account"><option value="all">全部账户</option></select>
               <label for="performance-benchmark">比较基准</label><select id="performance-benchmark"></select>
+              <div class="segments" role="group" aria-label="历史表现图表区间">
+                <button type="button" data-performance-range="month" aria-pressed="true">1 月</button>
+                <button type="button" data-performance-range="quarter" aria-pressed="false">3 月</button>
+                <button type="button" data-performance-range="half" aria-pressed="false">半年</button>
+                <button type="button" data-performance-range="year" aria-pressed="false">1 年</button>
+                <button type="button" data-performance-range="mtd" aria-pressed="false">本月</button>
+                <button type="button" data-performance-range="ytd" aria-pressed="false">本年</button>
+              </div>
             </div>
           </div>
           <p id="performance-status" class="work-note" role="status"></p>
@@ -141,7 +149,7 @@
           <details class="work-method">
             <summary>历史收益口径</summary>
             <p>每次以上一估值时点的持仓权重计算到下一时点的收益，再逐期相乘。直接排除持仓数量变动带来的市值跳变。缺少逐笔流水时，日内交易时点、分红再投资差异、税费和滑点无法还原。</p>
-            <p>组合和基准统一按显示币种、起点和新加坡时间周二至周六 06:00 的收盘估值取样。证券收益使用分红和拆股调整收盘价，现金含汇率变化。60% SPYM + 40% BOXX 每期恢复到目标权重，未扣再平衡成本。报价缺失时采用最长的连续有效区间。</p>
+            <p>组合和基准统一按显示币种、起点和新加坡时间周二至周六 06:00 的收盘估值取样。证券收益使用分红和拆股调整收盘价，现金含汇率变化。含 BOXX 的两条基准均按 60% 股票 ETF 和 40% BOXX 每期再平衡，未扣再平衡成本。报价缺失时采用最长的连续有效区间。</p>
           </details>
         </div>
       </section>

@@ -116,12 +116,19 @@ function drawMarketPlot(target, rows, {candle = false, base, history = rows, poi
     tip, tipTime, tipValue};
 }
 
+function placePlotTip({tip,width,height},pos,level) {
+  const side = pos + tip.offsetWidth + 10 < width ? pos + 10 : pos - tip.offsetWidth - 10;
+  const vertical = level - tip.offsetHeight - 9 >= 0 ? level - tip.offsetHeight - 9 : level + 10;
+  tip.style.left = Math.max(4, Math.min(width - tip.offsetWidth - 4, side)) + "px";
+  tip.style.top = Math.max(0, Math.min(height - tip.offsetHeight, vertical)) + "px";
+}
+
 function plotPoint(view, readout, format) {
   if (!view.plot) {
     readout.textContent = "";
     return;
   }
-  const {points, x, y, top, bottom, width, height, candle, base, previousValues, pointLabel, quietCursor, comparison, formatDelta,
+  const {points, x, y, top, bottom, candle, base, previousValues, pointLabel, quietCursor, comparison, formatDelta,
     guide, cursor, tip, tipTime, tipValue} = view.plot;
   const index = Math.min(view.selected ?? points.length - 1, points.length - 1);
   const row = points[index];
@@ -151,10 +158,7 @@ function plotPoint(view, readout, format) {
     tipTime.textContent = stamp;
     tipValue.textContent = candle ? "收 " + format(closeValue) : format(closeValue);
     tipValue.className = tone;
-    const side = pos + tip.offsetWidth + 10 < width ? pos + 10 : pos - tip.offsetWidth - 10;
-    const vertical = level - tip.offsetHeight - 9 >= 0 ? level - tip.offsetHeight - 9 : level + 10;
-    tip.style.left = Math.max(4, Math.min(width - tip.offsetWidth - 4, side)) + "px";
-    tip.style.top = Math.max(0, Math.min(height - tip.offsetHeight, vertical)) + "px";
+    placePlotTip(view.plot,pos,level);
   }
 }
 

@@ -408,10 +408,6 @@ function initNavChart() {
       navView.selected = null;
       for (const option of buttons) option.setAttribute("aria-pressed",String(selectedValue(option)===value));
       renderNavHistory(portfolio.base,demo);
-      if (field==="range") {
-        performanceView.selected = null;
-        renderPerformance();
-      }
     });
   };
   bindChoices("range");
