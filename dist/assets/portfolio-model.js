@@ -221,6 +221,12 @@ function stressResult(analysis, scenario, base) {
   },0);
 }
 
+function jointStressScenario(scenarios) {
+  return Object.fromEntries([...Object.keys(buckets),"fx"].map(key=>[key,
+    (scenarios.reduce((factor,row)=>factor*(1+row[key]/100),1)-1)*100,
+  ]));
+}
+
 function simulate(positions, orders) {
   const after = positions.map(row => ({...row}));
   const errors = [], cashChanges = new Map();

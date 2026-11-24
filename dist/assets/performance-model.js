@@ -118,11 +118,54 @@ function performanceDrawdown(rows) {
       trough=i;
     }
   }
-  if (decline===0) return {decline};
+  const current = rows.at(-1).value/rows[peak].value-1;
+  if (decline===0) return {decline,current};
   const recovery = rows.findIndex((row,i)=>i>trough && row.value>=rows[start].value);
   const endValue = rows[recovery<0 ? rows.length-1 : recovery].value;
   const progress = (endValue-rows[trough].value)/(rows[start].value-rows[trough].value);
-  return {start,trough,decline,recovery,progress:Math.min(1,Math.max(0,progress))};
+  return {start,trough,decline,current,recovery,progress:Math.min(1,Math.max(0,progress))};
+}
+
+function drawdownPath(rows) {
+  let peak = 0;
+  return rows.map(row=>{
+    peak = Math.max(peak,row.value);
+    return row.value/peak-1;
+  });
+}
+
+function drawdownBudget(current,limit) {
+  if (!fnum(current) || !(1+current>0)) return null;
+  const budget = limit+current;
+  return {remaining:budget,furtherLoss:Math.max(0,budget/(1+current))};
+}
+
+function performanceWeeklyCorrelation(rows,assets) {
+  const weeks = [];
+  let previous = null;
+  for (const [i,row] of rows.entries()) {
+    if (performanceDay(row.date)!==6) continue;
+    if (previous!==null && i-previous===5 && performanceDaysBetween(rows[previous].date,row.date)===7) {
+      const compounded = new Map();
+      for (const session of rows.slice(previous+1,i+1)) {
+        for (const part of session.parts) {
+          const cell = compounded.get(part.key) ?? {value:1,count:0};
+          cell.value *= 1+part.move;
+          cell.count++;
+          compounded.set(part.key,cell);
+        }
+      }
+      weeks.push(compounded);
+    }
+    previous = i;
+  }
+  return {observations:weeks.length,matrix:assets.map(a=>assets.map(b=>{
+    const paired = weeks.flatMap(week=>{
+      const left=week.get(a.key),right=week.get(b.key);
+      return left?.count===5 && right?.count===5 ? [[left.value-1,right.value-1]] : [];
+    });
+    return paired.length>=12 ? performanceCorrelation(paired.map(row=>row[0]),paired.map(row=>row[1])) : null;
+  }))};
 }
 
 function performanceAttribution(rows,first,last,sectors) {

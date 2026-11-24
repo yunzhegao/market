@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="组合历史表现、回撤归因、集中度与压力测试">
+  <meta name="theme-color" content="#ffffff" id="theme-color">
+  <title>投资组合绩效与风险分析 · 市场观察</title>
+  <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./assets/styles.css">
+  <link rel="stylesheet" href="./assets/workspace.css?v=risk-1">
+  <script defer src="./assets/live-config.js"></script>
+  <script defer src="./assets/world-snapshot.js"></script>
+  <script defer src="./assets/portfolio-model.js?v=risk-1"></script>
+  <script defer src="./assets/workspace.js?v=risk-1"></script>
+  <script defer src="./assets/market-plot.js?v=performance-2"></script>
+  <script defer src="./assets/portfolio-nav.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio-etf.js?v=risk-1"></script>
+  <script defer src="./assets/performance-model.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio-performance.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio-analysis.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio.js?v=risk-1"></script>
+  <script src="/assets/site-visits.js?v=4" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到内容</a>
+  <header class="site-header">
+    <div class="header-inner shell">
+      <div class="header-start">
+        <span class="site-name">市场观察</span>
+        <nav class="site-nav" aria-label="网站导航">
+          <a href="./framework.html">观察框架</a>
+          <a href="./world.html">环球市场</a>
+          <a href="./portfolio.html">组合分析</a>
+          <a href="./risk.html" aria-current="page">绩效风控</a>
+        </nav>
+      </div>
+      <div class="header-tools">
+        <a class="site-home" href="https://yunzhegao.github.io/cn.html">个人主页</a>
+        <time id="sync-time" hidden></time>
+        <button class="icon-button" id="refresh" type="button" aria-label="刷新数据" title="刷新数据">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.2 5.9M20 5v6h-6"/></svg>
+        </button>
+        <button class="icon-button" id="theme" type="button" aria-label="夜间模式" aria-pressed="false" title="切换日夜模式">
+          <svg class="moon" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 14a9 9 0 0 1-11-11 9.1 9.1 0 1 0 11 11Z"/></svg>
+          <svg class="sun" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <main id="main" class="shell work-page risk-page">
+    <div class="page-line">
+      <h1>投资组合绩效与风险分析</h1>
+      <div class="page-tools">
+        <label for="base-currency">显示币种</label><select id="base-currency"></select>
+        <label class="quote-switch"><input type="checkbox" id="live-portfolio" checked>自动行情</label>
+        <button type="button" class="compact-button pill-button" id="export-analysis" hidden>导出分析</button>
+        <a class="text-button" href="./portfolio.html">管理持仓</a>
+      </div>
+    </div>
+    <p id="portfolio-status" class="work-status" role="status"></p>
+    <div id="risk-simulation-banner" class="panel work-panel risk-simulation-banner" hidden>
+      <span id="risk-simulation-status"></span>
+      <a class="text-button" href="./risk.html">返回实际持仓</a>
+      <a class="text-button" href="./portfolio.html#simulation-title">编辑模拟操作</a>
+    </div>
+    <section id="portfolio-empty" class="panel empty-portfolio" hidden>
+      <h2>录入持仓后查看绩效与风险</h2>
+      <p><a class="text-button" href="./portfolio.html">前往组合分析</a></p>
+    </section>
+    <div id="portfolio-results" class="work-stack" hidden>
+      <section class="panel work-panel" aria-labelledby="risk-overview-title">
+        <div class="section-line"><h2 id="risk-overview-title">核心风险指标</h2><span id="risk-overview-period"></span></div>
+        <dl id="risk-overview" class="risk-metrics risk-overview"></dl>
+        <div class="page-tools risk-controls">
+          <label for="drawdown-limit">回撤上限 %</label>
+          <input id="drawdown-limit" type="number" min="0" max="100" step="0.1">
+          <span id="drawdown-distance" class="work-note"></span>
+        </div>
+        <progress id="drawdown-progress" value="0" max="100" aria-label="回撤预算已使用比例" hidden></progress>
+      </section>
+        <section class="performance-block panel work-panel" aria-labelledby="performance-title">
+          <div class="section-line performance-heading">
+            <h2 id="performance-title">组合历史表现</h2>
+            <div class="page-tools">
+              <label for="performance-account">账户</label><select id="performance-account"><option value="all">全部账户</option></select>
+              <label for="performance-benchmark">比较基准</label><select id="performance-benchmark"></select>
+              <div class="segments" role="group" aria-label="历史表现图表区间">
+                <button type="button" data-performance-range="month" aria-pressed="true">1 月</button>
+                <button type="button" data-performance-range="quarter" aria-pressed="false">3 月</button>
+                <button type="button" data-performance-range="half" aria-pressed="false">半年</button>
+                <button type="button" data-performance-range="year" aria-pressed="false">1 年</button>
+                <button type="button" data-performance-range="mtd" aria-pressed="false">本月</button>
+                <button type="button" data-performance-range="ytd" aria-pressed="false">本年</button>
+              </div>
+              <div class="segments" role="group" aria-label="历史表现图表类型">
+                <button type="button" data-performance-mode="total" aria-pressed="true">累计收益</button>
+                <button type="button" data-performance-mode="excess" aria-pressed="false">超额收益</button>
+                <button type="button" data-performance-mode="drawdown" aria-pressed="false">回撤</button>
+              </div>
+            </div>
+          </div>
+          <p id="performance-status" class="work-note" role="status"></p>
+          <div id="performance-data" hidden>
+            <div id="performance-legend" class="performance-legend" aria-label="显示基准曲线"></div>
+            <p class="work-note" id="performance-excess-note" hidden></p>
+            <div id="performance-chart" class="chart" tabindex="0" role="group" aria-label="累计收益图，使用左右方向键查看收益"></div>
+            <div id="performance-readout" class="chart-readout performance-readout" aria-live="polite"></div>
+            <details class="work-method" id="performance-accounts" hidden>
+              <summary>账户收益与风险对比</summary>
+              <p class="work-note" id="performance-account-status"></p>
+              <div class="work-table-wrap" id="performance-account-data"><table class="work-table" id="performance-account-table"></table></div>
+            </details>
+
+          </div>
+          <details class="work-method">
+            <summary>历史收益口径</summary>
+            <p>每次以上一估值时点的持仓权重计算到下一时点的收益，再逐期相乘。直接排除持仓数量变动带来的市值跳变。缺少逐笔流水时，日内交易时点、分红再投资差异、税费和滑点无法还原。</p>
+            <p>组合和基准统一按显示币种、起点和新加坡时间周二至周六 06:00 的收盘估值取样。证券收益使用分红和拆股调整收盘价，现金含汇率变化。含 BOXX 的两条基准均按 60% 股票 ETF 和 40% BOXX 每期再平衡，未扣再平衡成本。报价缺失时采用最长的连续有效区间。</p>
+          </details>
+        </section>
+            <section class="panel work-panel" id="performance-attribution" aria-labelledby="attribution-title" hidden>
+              <div class="section-line"><h2 id="attribution-title">区间收益与回撤归因</h2></div>
+              <p class="work-note" id="performance-drawdown"></p>
+              <p class="work-note">贡献按期初净值计为百分点。ETF 行业贡献按最近可用行业权重分摊基金整体收益，属估算，未使用底层成分股的历史收益。汇率单列，含价汇交互项。</p>
+              <div class="performance-tables">
+                <div class="work-table-wrap"><table class="work-table" id="performance-asset-attribution" aria-label="持仓收益与回撤贡献"></table></div>
+                <div class="work-table-wrap"><table class="work-table" id="performance-sector-attribution" aria-label="行业收益与回撤贡献"></table></div>
+              </div>
+            </section>
+          <section class="panel work-panel" aria-labelledby="risk-title">
+            <div class="section-line"><h2 id="risk-title">组合风险分析</h2><span id="risk-account"></span></div>
+            <div class="page-tools risk-controls">
+              <div class="segments" role="group" aria-label="风险分析区间">
+                <button type="button" data-risk-range="month" aria-pressed="false">1 月</button>
+                <button type="button" data-risk-range="quarter" aria-pressed="false">3 月</button>
+                <button type="button" data-risk-range="half" aria-pressed="false">半年</button>
+                <button type="button" data-risk-range="year" aria-pressed="true">1 年</button>
+              </div>
+              <label class="quote-switch"><input type="checkbox" id="risk-recorded">仅用持仓记录</label>
+            </div>
+            <div class="page-tools risk-controls">
+              <label for="risk-free-rate">年化无风险率（<span id="risk-rate-currency"></span>，%）</label>
+              <input id="risk-free-rate" type="number" min="-99.99" max="100" step="any" placeholder="未设置" aria-describedby="risk-rate-method">
+            </div>
+            <p class="work-note" id="risk-status" role="status"></p>
+            <div id="risk-data" hidden>
+              <dl class="risk-metrics" id="risk-metrics"></dl>
+              <details class="work-method" open>
+                <summary>持仓波动风险贡献</summary>
+                <p class="work-note" id="risk-contribution-note"></p>
+                <div class="work-table-wrap" id="risk-contribution-wrap"><table class="work-table" id="risk-contribution"></table></div>
+              </details>
+              <details class="work-method">
+                <summary>持仓相关性矩阵</summary>
+                <div class="page-tools risk-controls"><label for="risk-correlation-frequency">收益频率</label><select id="risk-correlation-frequency"><option value="day">日收益</option><option value="week">周收益</option></select></div>
+                <p class="work-note" id="risk-correlation-note"></p>
+                <div class="work-table-wrap" id="risk-correlation-wrap"><table class="work-table risk-matrix" id="risk-correlation"></table></div>
+              </details>
+              <details class="work-method" id="risk-rolling">
+                <summary>滚动风险</summary>
+                <div class="page-tools risk-controls">
+                  <label for="risk-rolling-metric">最近 60 期</label>
+                  <select id="risk-rolling-metric"><option value="volatility">年化波动率</option><option value="maximum">最大回撤</option><option value="beta">Beta</option></select>
+                </div>
+                <p class="work-note" id="risk-rolling-status"></p>
+                <div class="chart-readout" id="risk-rolling-readout" aria-live="polite"></div>
+                <div class="chart" id="risk-rolling-chart" tabindex="0" role="group" aria-label="滚动风险图，使用左右方向键查看数据"></div>
+              </details>
+            </div>
+            <details class="work-method">
+              <summary>风险指标说明</summary>
+              <p id="risk-rate-method">无风险率按显示币种分别保存，录入值作为整个区间的年化假设。留空时夏普和索提诺不出数值。</p>
+              <dl class="risk-method" id="risk-method"></dl>
+            </details>
+          </section>
+      <div class="risk-bottom">
+          <section class="panel work-panel" aria-labelledby="stress-title">
+            <div class="section-line"><h2 id="stress-title">压力情景</h2><button type="button" class="text-button" id="edit-stress">调整冲击</button></div>
+            <div class="work-table-wrap"><table class="work-table" id="stress-table"></table></div>
+            <p class="work-note">冲击由你设定。外币冲击相对当前显示币种。</p>
+            <details class="work-method" id="joint-stress">
+              <summary>联合压力测试</summary>
+              <div class="page-tools" id="joint-stress-choices"></div>
+              <p class="work-note" id="joint-stress-result" aria-live="polite"></p>
+            </details>
+          </section>
+          <section class="panel work-panel" aria-labelledby="concentration-title">
+            <div class="section-line"><h2 id="concentration-title">组合集中度监控</h2></div>
+            <div class="concentration-grid">
+              <div><h3>最大个股敞口</h3><strong id="concentration-largest"></strong><small id="concentration-largest-status"></small><label>上限 % <input id="concentration-largest-limit" type="number" min="0" max="100" step="any"></label></div>
+              <div><h3>前三大个股敞口</h3><strong id="concentration-topThree"></strong><small id="concentration-topThree-status"></small><label>上限 % <input id="concentration-topThree-limit" type="number" min="0" max="100" step="any"></label></div>
+              <div><h3>金融行业敞口</h3><strong id="concentration-financial"></strong><small id="concentration-financial-status"></small><label>上限 % <input id="concentration-financial-limit" type="number" min="0" max="100" step="any"></label></div>
+            </div>
+            <p class="work-note">包含已知 ETF 间接持仓，分母为已计价组合总市值。缺少披露或报价时，预警按已知敞口判断。</p>
+          </section>
+      </div>
+    </div>
+  </main>
+  <input type="file" id="import-portfolio" accept=".json,application/json" hidden>
+  <dialog id="portfolio-dialog" class="editor-dialog" aria-labelledby="editor-title">
+    <div class="dialog-header"><h2 id="editor-title"></h2><form method="dialog"><button class="close-button" aria-label="关闭">×</button></form></div>
+    <form class="dialog-body" id="editor-form">
+      <div id="editor-content"></div>
+      <p class="work-error" id="editor-error" role="alert"></p>
+      <div class="editor-actions"><button id="editor-add" type="button" class="compact-button">添加一行</button><div class="page-tools"><button id="editor-example" type="button" class="text-button">下载示例 JSON</button><button id="editor-import" type="button" class="compact-button">导入</button><button id="editor-export" type="button" class="compact-button">导出备份</button><button type="submit" class="solid-button">保存</button></div></div>
+    </form>
+  </dialog>
+  <dialog id="analysis-export-dialog" class="editor-dialog" aria-labelledby="analysis-export-title">
+    <div class="dialog-header"><h2 id="analysis-export-title">导出组合分析</h2><form method="dialog"><button class="close-button" aria-label="关闭">×</button></form></div>
+    <div class="dialog-body">
+      <p class="work-note">当前视图包含两页所选区间。完整历史另含全部区间及复算所需的行情、汇率和持仓记录。</p>
+      <p class="work-note" id="export-history-status" role="status"></p>
+      <div class="page-tools"><button type="button" class="compact-button" id="export-analysis-current">导出当前视图</button><button type="button" class="solid-button" id="export-analysis-full">导出完整历史数据</button></div>
+    </div>
+  </dialog>
+</body>
+</html>

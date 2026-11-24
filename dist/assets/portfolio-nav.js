@@ -397,6 +397,7 @@ function drawNavPlot(rows, from, to, base) {
 
 function initNavChart() {
   const chart = by("nav-history-chart");
+  if (!chart) return;
   bindPlot(chart,navView,showNavPoint);
   const bindChoices = field => {
     const buttons = [...document.querySelectorAll("[data-nav-"+field+"]")];
@@ -405,6 +406,7 @@ function initNavChart() {
       const value = selectedValue(button);
       if (navView[field]===value) return;
       navView[field] = value;
+      if (field==="range") saveAnalysisPreference("navRange",value);
       navView.selected = null;
       for (const option of buttons) option.setAttribute("aria-pressed",String(selectedValue(option)===value));
       renderNavHistory(portfolio.base,demo);
@@ -422,6 +424,8 @@ function initNavChart() {
 }
 
 function renderNavHistory(base, isDemo) {
+  renderExportAvailability();
+  if (!by("nav-history")) return;
   by("nav-history").hidden = isDemo;
   if (isDemo) return;
   const now = Date.now();

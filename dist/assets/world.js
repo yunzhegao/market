@@ -101,7 +101,8 @@ const adrReferences = new Map(Object.entries(localRead(adrCacheKey,{})).flatMap(
 }));
 let resolvingAdr = false;
 const fourDays = 4 * 86400000;
-let portfolioRows = localRead(storageKeys.portfolio,{}).positions || [];
+let portfolioRows = readPortfolioBook()?.positions ?? [];
+let watchPortfolioRequest = 0;
 let waiting = false;
 let refreshQueued = false;
 
@@ -752,15 +753,17 @@ for (const button of fxReferenceButtons) button.addEventListener("click",()=>{
 });
 window.addEventListener("storage",event=>{
   if(event.key!==storageKeys.portfolio)return;
-  portfolioRows=localRead(storageKeys.portfolio,{}).positions||[];
+  watchPortfolioRequest++;
+  portfolioRows=readPortfolioBook()?.positions ?? [];
   renderWorld();
   refreshWorld();
 });
 async function refreshWorldData() {
   refreshWorld();
+  const request = ++watchPortfolioRequest;
   try {
     const data=await requestSavedPortfolio();
-    if (!Array.isArray(data?.portfolio?.positions)) return;
+    if (request!==watchPortfolioRequest || !Array.isArray(data?.portfolio?.positions)) return;
     const previous=JSON.stringify(portfolioRows);
     portfolioRows=data.portfolio.positions;
     if (JSON.stringify(portfolioRows)!==previous) {

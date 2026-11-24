@@ -1,7 +1,27 @@
 "use strict";
 
+const performanceCacheKey = "market-performance-prices-v1";
 const performancePrices = new Map();
 const performanceRequests = new Map();
+for (const [symbol,record] of Object.entries(localRead(performanceCacheKey,{}))) {
+  if (!symbolValid(symbol) || typeof record?.currency!=="string" || !Array.isArray(record.rows)) continue;
+  const byDate = new Map(record.rows.filter(row=>validNavDate(row?.[0]) && fnum(row[1]?.price) && fnum(row[1]?.close)));
+  if (!byDate.size) continue;
+  performancePrices.set(symbol,{currency:record.currency,byDate});
+  if (record.request) performanceRequests.set(symbol,record.request);
+}
+
+function storePerformancePrices() {
+  const entries = {};
+  let remaining = 1200000;
+  for (const [symbol,quote] of [...performancePrices].reverse()) {
+    const record = {currency:quote.currency,rows:[...quote.byDate],request:performanceRequests.get(symbol)};
+    remaining -= JSON.stringify(record).length+symbol.length+6;
+    if (remaining<0) break;
+    entries[symbol] = record;
+  }
+  localWrite(performanceCacheKey,entries);
+}
 const performanceView = {range:"month",mode:"total",plot:null,selected:null,rows:[],comparisons:{},visible:new Set(Object.keys(performanceBenchmarks))};
 const riskView = {range:"year",report:null};
 const rollingRiskView = {plot:null,selected:null};
@@ -31,8 +51,8 @@ const performanceRiskDefinitions = [
 const performancePp = value => fnum(value) ? plus(value*100)+" pp" : "—";
 const performancePercent = value => fnum(value) ? fmt(value*100)+"%" : "—";
 const performanceSigned = value => fnum(value) ? '<span class="'+tone(value)+'">'+pctText(value*100)+'</span>' : "—";
-const performanceScope = () => by("performance-account").value==="all" ? null : by("performance-account").value.slice(8);
-const performanceReference = () => by("performance-benchmark").value;
+const performanceScope = () => analysisPreferences.account ?? null;
+const performanceReference = () => Object.hasOwn(performanceBenchmarks,analysisPreferences.benchmark) ? analysisPreferences.benchmark : "spyMix";
 
 function performanceAccounts(state) {
   const names = new Set(state.positions.map(row=>row.account));
@@ -44,17 +64,17 @@ function performanceAccounts(state) {
 
 function updatePerformanceAccounts(accounts) {
   const select = by("performance-account");
-  const selected = select.value;
+  if (!select) return;
+  const selected = performanceScope()===null ? "all" : "account:"+performanceScope();
   const markup = '<option value="all">全部账户</option>'+accounts.map(name=>'<option value="account:'+esc(name)+'">'+esc(name)+'</option>').join("");
-  if (select.innerHTML===markup) return;
-  select.innerHTML = markup;
+  if (select.innerHTML!==markup) select.innerHTML = markup;
   select.value = [...select.options].some(option=>option.value===selected) ? selected : "all";
 }
 
 function performanceSymbols(state,from,to) {
   const symbols = new Set(performanceBenchmarkSymbols);
   if (state.base!=="USD") symbols.add(navFxSymbol(state.base));
-  const simulated = by("simulation-risk").open ? simulationAnalysis?.after?.values ?? [] : [];
+  const simulated = simulationAnalysis?.after?.values ?? [];
   const positions = [...state.positions,...simulated,...performanceSchedule(state,from,to).flatMap(row=>row.holdings)];
   for (const row of positions) {
     if (!(row.quantity>0)) continue;
@@ -100,7 +120,7 @@ async function refreshPerformance(force=false) {
               if (!Array.isArray(row) || !validNavDate(row[0]) || !(row[1]>0) || !fnum(row[1])) continue;
               const fx = /^USD[A-Z]{3}=X$/.test(symbol);
               const close = fx ? row[1] : row[3];
-              if (fnum(close) && close>0) byDate.set(row[0],{price:row[1],close,splitClose:row[4]});
+              if (fnum(close) && close>0) byDate.set(row[0],{price:row[1],close,splitClose:row[4],source:row[2]});
             }
             if (byDate.size) performancePrices.set(symbol,{currency:quote.currency,byDate});
           }
@@ -113,11 +133,13 @@ async function refreshPerformance(force=false) {
         for (const symbol of symbols) performanceRequests.set(symbol,{date:to,time:now,full:false});
       }
     }
+    if (!unsupported) storePerformancePrices();
     performanceLastMessage = unsupported ? "历史收益需要部署新版行情 Worker。"
       : failed ? "部分历史行情请求失败，将在下次刷新时重试。" : "";
   } finally {
     performanceLoading = false;
     renderPerformance();
+    renderSimulationRisk();
     if (performanceQueued) {
       const force = performanceForceQueued;
       performanceQueued = false;
@@ -140,6 +162,10 @@ function showPerformancePoint() {
   }
   const format = (value,relative) => relative ? performancePp(value) : pctText(value*100);
   if (mode==="excess") readings.push({label:"超额收益",color:"var(--chart-line)",value:readings[0].value-readings[1].value,relative:true});
+  if (mode==="drawdown") {
+    readings[0].value = plot.points[index][1]/100;
+    for (const reading of readings.slice(1)) reading.value = performanceView.drawdownPaths[reading.label][index];
+  }
   const active = selected!==null;
   const x = plot.x(index);
   const y = plot.y(plot.points[index][1]);
@@ -153,7 +179,7 @@ function showPerformancePoint() {
   plot.cursor.style.opacity = active ? "1" : "0";
   plot.tip.hidden = !active;
   if (active) {
-    plot.tipTime.textContent = point.date + (mode==="excess" ? "" : " · 累计收益");
+    plot.tipTime.textContent = point.date + (mode==="drawdown" ? " · 回撤" : mode==="total" ? " · 累计收益" : "");
     plot.tipValue.innerHTML = readings.map(({label,color,value,relative})=>
       '<span class="performance-tip-row"><i style="--series-color:'+color+'"></i><span>'+esc(label)+'</span><b class="'+tone(value)+'">'+esc(format(value,relative))+'</b></span>'
     ).join("");
@@ -167,21 +193,26 @@ function drawPerformancePlot() {
   const {rows,comparisons,visible,mode} = performanceView;
   if (!rows.length) return;
   const target = by("performance-chart");
-  const excess = mode==="excess", benchmark = comparisons[performanceReference()];
+  const excess = mode==="excess", drawdown = mode==="drawdown", benchmark = comparisons[performanceReference()];
   by("performance-legend").hidden = excess;
   target.hidden = excess && !benchmark;
   by("performance-readout").hidden = target.hidden;
-  by("performance-excess-note").hidden = !excess;
+  by("performance-excess-note").hidden = !excess && !drawdown;
   by("performance-excess-note").textContent = target.hidden ? "所选基准缺少同区间行情，无法显示超额收益。"
-    : "组合累计收益减去 "+performanceBenchmarks[performanceReference()].label+" 的累计收益，单位为百分点。";
+    : drawdown ? "每条线自该区间内各自最高点计算回撤。" : "组合累计收益减去 "+performanceBenchmarks[performanceReference()].label+" 的累计收益，单位为百分点。";
   if (target.hidden) {performanceView.plot=null;return;}
-  const points = rows.map((row,i)=>[navCutoff(row.date),(row.value-(excess?benchmark[i].value:1))*100]);
+  const primary = drawdown ? drawdownPath(rows) : rows.map((row,i)=>row.value-(excess?benchmark[i].value:1));
+  const points = rows.map((row,i)=>[navCutoff(row.date),primary[i]*100]);
+  performanceView.drawdownPaths = {};
   performanceView.plot = drawMarketPlot(target,points,{
     base:0,quietCursor:true,axisWidth:60,axisFormat:value=>fmt(value,1)+(excess?" pp":"%"),
     axisLabel:row=>navDate(row[0]).slice(5).replace("-","/"),
-    overlays:excess ? [] : Object.entries(comparisons).filter(([key,series])=>visible.has(key)&&series).map(([key,series])=>({
-      color:performanceBenchmarks[key].color,values:series.map(row=>(row.value-1)*100),
-    })),
+    overlays:excess ? [] : Object.entries(comparisons).filter(([key,series])=>visible.has(key)&&series).map(([key,series])=>{
+      const {label,color} = performanceBenchmarks[key];
+      const values = drawdown ? drawdownPath(series) : series.map(row=>row.value-1);
+      if (drawdown) performanceView.drawdownPaths[label] = values;
+      return {color,values:values.map(value=>value*100)};
+    }),
   });
   performanceView.plot.tip.classList.add("performance-tip");
   showPerformancePoint();
@@ -202,7 +233,7 @@ function performanceProvenance(result) {
 
 function renderPerformanceAccounts(accounts,from,to,base) {
   const details = by("performance-accounts");
-  details.hidden = accounts.length<2;
+  details.hidden = accounts.length<2 || Boolean(simulationRequested && simulationAnalysis?.after);
   if (details.hidden || !details.open) return;
   const data = accounts.map(name=>({name,result:performanceSeries(performanceSchedule(portfolio,from,to,name),base,performancePrices)}));
   const ready = data.filter(row=>row.result.rows.length>=2);
@@ -275,16 +306,37 @@ function historicalAvailability() {
     : performanceLastMessage || "此区间暂无连续的有效收益样本。";
 }
 
+function analysisDataset(range,now,{recordedOnly=false,account=performanceScope()}={}) {
+  if (account!==null && !performanceAccounts(portfolio).includes(account)) account = null;
+  const requested = navRangeDates(range,now), base = portfolio.base;
+  const {from,to} = requested;
+  const scenario = simulationRequested ? simulationAnalysis?.after : null;
+  const scope = account===null ? scenario : scenario && {
+    values:scenario.values.filter(row=>row.account===account),nav:scenario.accounts.get(account)??0,
+  };
+  const schedule = scenario ? performanceFixedSchedule(scope,from,to) : performanceSchedule(portfolio,from,to,account);
+  const result = demo ? {rows:[]} : performanceSeries(schedule,base,performancePrices,{recordedOnly:recordedOnly&&!scenario});
+  const {rows} = result;
+  const comparisons = Object.fromEntries(Object.entries(performanceBenchmarks).map(([key,{mix}])=>
+    [key,performanceBenchmark(rows.map(row=>row.date),base,performancePrices,mix)]));
+  const bench = comparisons[performanceReference()];
+  const drawdown = performanceDrawdown(rows);
+  return {requested,recordedOnly:recordedOnly&&!scenario,result,comparisons,bench,drawdown,scenario:Boolean(scenario)};
+}
+
 function renderRiskAnalysis() {
+  if (!by("risk-title")) return;
   const base = portfolio.base, account = performanceScope();
-  const {from,to} = navRangeDates(riskView.range,Date.now());
-  const recordedOnly = by("risk-recorded").checked;
-  const result = demo ? {rows:[]} : performanceSeries(performanceSchedule(portfolio,from,to,account),base,performancePrices,{recordedOnly});
+  const scenario = Boolean(simulationRequested && simulationAnalysis?.after);
+  const checkbox = by("risk-recorded");
+  checkbox.disabled = scenario;
+  const data = analysisDataset(riskView.range,Date.now(),{recordedOnly:checkbox.checked});
+  const {result,bench,drawdown,recordedOnly} = data;
   const {rows} = result, benchmark = performanceBenchmarks[performanceReference()];
-  const bench = performanceBenchmark(rows.map(row=>row.date),base,performancePrices,benchmark.mix);
-  const drawdown = performanceDrawdown(rows), rate = analysisAnnualRate(base);
+  const rate = analysisAnnualRate(base);
   const risk = performanceRisk(rows,bench,drawdown,rate);
-  riskView.report = {requested:{from,to},recordedOnly,result,bench,drawdown,rate,risk};
+  riskView.report = {...data,rate,risk};
+  renderRiskOverview(riskView.report);
   by("risk-account").textContent = account ?? "全部账户";
   by("risk-rate-currency").textContent = base;
   if (document.activeElement!==by("risk-free-rate") || by("risk-free-rate").dataset.currency!==base) {
@@ -317,11 +369,26 @@ function renderRiskAnalysis() {
     table("risk-contribution",["持仓","平均资金权重","波动风险占比"],risk.assets.map(row=>[
       td(esc(row.label)),td(performancePercent(row.weight)),td(performancePercent(row.risk)),
     ]));
-    table("risk-correlation",["持仓",...risk.top.map(row=>row.label)],risk.matrix.map((row,i)=>[
-      td(esc(risk.top[i].label)),...row.map(value=>td(fmt(value),value>.65?"risk-aligned":value<-.45?"risk-inverse":"")),
-    ]));
+
   }
+  renderRiskCorrelation();
   renderRollingRisk();
+}
+
+function renderRiskCorrelation() {
+  const risk = riskView.report?.risk;
+  if (!risk) return;
+  const weekly = by("risk-correlation-frequency").value==="week";
+  const sample = weekly ? performanceWeeklyCorrelation(riskView.report.result.rows,risk.top)
+    : {observations:risk.observations,matrix:risk.matrix};
+  const enough = sample.observations>=(weekly?12:performanceMinimum.ratios);
+  by("risk-correlation-wrap").hidden = !enough;
+  by("risk-correlation-note").textContent = weekly
+    ? "按新加坡时间周六估值对齐 · "+sample.observations+" 个完整周 · 每对持仓至少需 12 周"
+    : enough ? "" : "至少需要 "+performanceMinimum.ratios+" 期。当前 "+sample.observations+" 期。";
+  if (enough) table("risk-correlation",["持仓",...risk.top.map(row=>row.label)],sample.matrix.map((row,i)=>[
+    td(esc(risk.top[i].label)),...row.map(value=>td(fmt(value),value>.65?"risk-aligned":value<-.45?"risk-inverse":"")),
+  ]));
 }
 
 function showRollingRiskPoint() {
@@ -346,21 +413,15 @@ function renderRollingRisk() {
 }
 
 function renderPerformance() {
-  const now = Date.now();
-  const {from,to} = navRangeDates(performanceView.range,now);
+  renderExportAvailability();
+  if (!by("performance-chart")) return;
   const accounts = performanceAccounts(portfolio);
   updatePerformanceAccounts(accounts);
-  const account = performanceScope(), base = portfolio.base;
-  const result = demo ? {rows:[]} : performanceSeries(performanceSchedule(portfolio,from,to,account),base,performancePrices);
+  const base = portfolio.base;
+  const {requested:range,result,comparisons,bench:benchmark,drawdown} = analysisDataset(performanceView.range,Date.now());
+  const {from,to} = range;
   const {rows} = result;
-  const benchmarkMissing = [];
-  const comparisons = Object.fromEntries(Object.entries(performanceBenchmarks).map(([key,record])=>{
-    const series = performanceBenchmark(rows.map(row=>row.date),base,performancePrices,record.mix);
-    if (!series) benchmarkMissing.push(record.label);
-    return [key,series];
-  }));
-  const benchmark = comparisons[performanceReference()];
-  const drawdown = performanceDrawdown(rows);
+  const benchmarkMissing = Object.entries(comparisons).filter(([,series])=>!series).map(([key])=>performanceBenchmarks[key].label);
   const requested = rows.length<result.expected ? " · 有效估值 "+rows.length+" / "+result.expected+" 个时点" : "";
   const missing = result.missing?.length ? " · 缺少 "+result.missing.slice(0,5).join("、")+(result.missing.length>5?" 等报价或汇率":" 的报价或汇率") : "";
   const status = rows.length<2 ? historicalAvailability()+missing
@@ -370,7 +431,7 @@ function renderPerformance() {
   by("performance-status").textContent = status;
   by("performance-data").hidden = rows.length<2;
   renderRiskAnalysis();
-  renderSimulationRisk();
+  by("performance-attribution").hidden = rows.length<2;
   Object.assign(performanceView,{rows,comparisons,result,drawdown,attribution:null,requested:{from,to}});
   if (rows.length<2) {
     performanceView.rows = [];
@@ -384,10 +445,14 @@ function renderPerformance() {
 }
 
 function initPerformance() {
+  if (!by("performance-chart")) return;
   by("performance-benchmark").innerHTML = Object.entries(performanceBenchmarks).map(([key,row])=>'<option value="'+key+'">'+esc(row.label)+'</option>').join("");
-  by("performance-benchmark").value = "spyMix";
+  by("performance-benchmark").value = performanceReference();
+  by("risk-recorded").checked = Boolean(analysisPreferences.recordedOnly);
+  by("risk-correlation-frequency").addEventListener("change",renderRiskCorrelation);
   const choices = (attribute,view,field,render)=>{
     const buttons = [...document.querySelectorAll("["+attribute+"]")];
+    for (const button of buttons) button.setAttribute("aria-pressed",String(button.getAttribute(attribute)===view[field]));
     for (const button of buttons) button.addEventListener("click",()=>{
       const value = button.getAttribute(attribute);
       if (value===view[field]) return;
@@ -397,6 +462,7 @@ function initPerformance() {
     });
   };
   choices("data-performance-range",performanceView,"range",()=>{
+    saveAnalysisPreference("performanceRange",performanceView.range);
     performanceView.selected = null;
     renderPerformance();
   });
@@ -405,11 +471,13 @@ function initPerformance() {
     drawPerformancePlot();
   });
   choices("data-risk-range",riskView,"range",()=>{
+    saveAnalysisPreference("riskRange",riskView.range);
     rollingRiskView.selected = null;
     renderRiskAnalysis();
     renderSimulationRisk();
   });
   by("risk-recorded").addEventListener("change",()=>{
+    saveAnalysisPreference("recordedOnly",by("risk-recorded").checked);
     rollingRiskView.selected = null;
     renderRiskAnalysis();
   });
@@ -423,7 +491,10 @@ function initPerformance() {
   new ResizeObserver(()=>{
     if (rollingRiskView.plot && (rolling.clientWidth!==rollingRiskView.plot.width || rolling.clientHeight!==rollingRiskView.plot.height)) renderRollingRisk();
   }).observe(rolling);
-  for (const id of ["performance-account","performance-benchmark"]) by(id).addEventListener("change",()=>{
+  for (const id of ["performance-account","performance-benchmark"]) by(id).addEventListener("change",event=>{
+    const value = event.target.value;
+    if (id==="performance-account") saveAnalysisPreference("account",value==="all"?null:value.slice(8));
+    else saveAnalysisPreference("benchmark",value);
     performanceView.selected = null;
     rollingRiskView.selected = null;
     renderPerformance();

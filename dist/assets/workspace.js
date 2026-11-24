@@ -25,6 +25,10 @@ function localWrite(key, content) {
   catch { return false; }
 }
 
+function readPortfolioBook() {
+  return localRead(storageKeys.portfolio,null);
+}
+
 async function requestSavedPortfolio() {
   const response = await fetch("./api/portfolio",{cache:"no-store",signal:AbortSignal.timeout(8000)});
   if (!response.ok) return null;

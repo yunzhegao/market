@@ -376,3 +376,15 @@ a.world-cross-quote:is(:hover,:focus-visible) > span {color:var(--accent)}
 .risk-matrix .risk-inverse {background:color-mix(in srgb,var(--down) 11%,transparent)}
 #sector-exposure-sources a {display:inline-block;margin-right:.42rem}
 @media(max-width:680px) {.performance-tables {grid-template-columns:1fr}.performance-heading .page-tools {justify-content:flex-start}}
+
+/* Shared portfolio and risk pages */
+.risk-page .performance-block {margin:0;padding:.62rem .72rem;border-top:1px solid var(--line)}
+.risk-page .performance-heading h2 {font-size:.93rem}
+.risk-overview {grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
+.risk-overview dd {font-size:clamp(1rem,2vw,1.36rem)}
+.risk-page progress {width:100%;height:.43rem;margin-top:.25rem;accent-color:var(--accent)}
+.risk-simulation-banner {display:flex;align-items:center;flex-wrap:wrap;gap:.35rem .72rem;margin:0 0 .6rem;font-size:.78rem}
+.risk-bottom {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.6rem;align-items:start}
+.risk-page .risk-matrix td,.risk-page .risk-matrix th {padding:.45rem .5rem}
+#joint-stress-choices {margin:.45rem 0}
+@media(max-width:680px) {.risk-bottom {grid-template-columns:1fr}}

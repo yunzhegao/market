@@ -1,20 +1,31 @@
 "use strict";
 
-const savedPortfolio = localRead(storageKeys.portfolio,null);
+const savedPortfolio = readPortfolioBook();
 let portfolio;
 try { portfolio = savedPortfolio ? normalizePortfolio(savedPortfolio) : blankPortfolio(); }
 catch { portfolio = blankPortfolio(); }
-let autoRates = {};
-let fxInfo = "";
+const portfolioFxKey = "market-portfolio-fx-cache-v1";
+const portfolioQuoteKey = "market-portfolio-quote-cache-v1";
+const savedFx = localRead(portfolioFxKey,{});
+let autoRates = savedFx.rates ?? {};
+let fxInfo = savedFx.label ?? "";
 let fxRequest = 0;
-let activeFxDate;
-let orders = [];
+let activeFxDate = savedFx.date;
+const portfolioRiskPage = Boolean(by("risk-title"));
+const simulationRequested = portfolioRiskPage && new URLSearchParams(location.search).get("simulation")==="1";
+const simulationOrdersKey = "market-portfolio-simulation-v1";
+const readSimulationOrders = () => {
+  const saved = localRead(simulationOrdersKey,[]);
+  return Array.isArray(saved) ? saved.filter(row=>row && typeof row==="object") : [];
+};
+let orders = readSimulationOrders();
+const saveSimulationOrders = () => {if (!demo) localWrite(simulationOrdersKey,orders);};
 let editor;
 let demo = false;
 let persistenceWarning = "";
 let databaseVersion = null;
 let pendingSave = false;
-let portfolioQuotes = {};
+let portfolioQuotes = localRead(portfolioQuoteKey,{});
 let quotesLoading = false;
 let livePortfolio = localRead("market-observation-live-prices",true);
 const formatter = new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"});
@@ -68,7 +79,7 @@ async function updateDatabase(mode, fields = {}) {
 }
 
 async function writePortfolio(next, restoredHistory = null) {
-  const savedHistory = databaseVersion === null ? normalizeNavHistory(localRead(storageKeys.portfolio,null)?.navHistory) : null;
+  const savedHistory = databaseVersion === null ? normalizeNavHistory(readPortfolioBook()?.navHistory) : null;
   const previous = restoredHistory ?? savedHistory
     ?? portfolio.navHistory ?? migrateNavHistory();
   next = recordNavHoldings(next,previous);
@@ -111,6 +122,9 @@ async function refreshPortfolioQuotes() {
     const quotes = await latestMarketQuotes(symbols);
     for (const [key,quote] of Object.entries(quotes)) {
       if (!(portfolioQuotes[key]?.time > quote.time)) portfolioQuotes[key] = quote;
+    }
+    if (Object.keys(quotes).length) {
+      localWrite(portfolioQuoteKey,Object.fromEntries(symbols.filter(symbol=>portfolioQuotes[symbol]).map(symbol=>[symbol,portfolioQuotes[symbol]])));
     }
     draw();
   } finally {quotesLoading=false;}
@@ -359,14 +373,16 @@ function showSimulation(report,rates,sectors=sectorExposure(report,portfolio,dem
   const outcome = orders.length ? simulate(portfolioRowsNow(),orders) : null;
   const after = outcome?.positions ? analyzePortfolio(outcome.positions,rates) : null;
   const error = outcome?.errors.join(" ");
-  by("simulation-error").textContent = error || "";
+  if (by("simulation-error")) by("simulation-error").textContent = error || "";
   const beforeConcentration = concentrationSnapshot(report,sectors);
   const afterConcentration = after ? concentrationSnapshot(after,sectorExposure(after,portfolio,demo)) : null;
-  compare(report,after,beforeConcentration,afterConcentration);
-  compareExposure(report,after);
+  if (by("simulation-table")) {
+    compare(report,after,beforeConcentration,afterConcentration);
+    compareExposure(report,after);
+  }
   const stress = portfolio.scenarios.map(scenario=>({name:scenario.name,assumptions:scenario,
     before:stressResult(report,scenario,portfolio.base),after:after ? stressResult(after,scenario,portfolio.base) : null}));
-  table("stress-table",["情景","操作前影响","操作后影响","变化"],stress.map(({name,before,after:next})=>{
+  if (by("stress-table")) table("stress-table",["情景","操作前影响","操作后影响","变化"],stress.map(({name,before,after:next})=>{
     const display = (value,nav)=>signedMoney(value)+(nav>0&&fnum(value)?'<small>'+pctText(value/nav*100)+'</small>':"");
     return [td(esc(name)),td(display(before,report.nav)),td(display(next,after?.nav)),td(fnum(before)&&fnum(next)?signedMoney(next-before):"—")];
   }),"暂无压力情景");
@@ -378,9 +394,11 @@ function draw() {
   const report = analyzePortfolio(portfolioRowsNow(),rates);
   by("portfolio-empty").hidden = Boolean(report.values.length);
   by("portfolio-results").hidden = !report.values.length && (demo || !portfolio.navHistory);
-  by("portfolio-kpis").hidden = !report.values.length;
-  by("portfolio-details").hidden = !report.values.length;
-  by("exit-demo").hidden = !demo;
+  if (!portfolioRiskPage) {
+    by("portfolio-kpis").hidden = !report.values.length;
+    by("portfolio-details").hidden = !report.values.length;
+    by("exit-demo").hidden = !demo;
+  }
   const status = [
     demo ? "演示数据" : databaseVersion !== null ? "持仓已接入数据库" : "本机持仓",
     livePortfolio && !demo && report.values.some(row=>row.kind!=="cash")
@@ -393,14 +411,18 @@ function draw() {
   const overrides = Object.keys(portfolio.rates).length;
   if (overrides) status.push(overrides+" 个币种使用手动汇率");
   by("portfolio-status").textContent = status.filter(Boolean).join(" · ");
-  by("public-portfolio").hidden = demo || !report.values.length;
+  if (by("public-portfolio")) by("public-portfolio").hidden = demo || !report.values.length;
   by("export-analysis").hidden = !report.values.length && !portfolio.navHistory;
   if (report.values.length) {
     const sectors = sectorExposure(report,portfolio,demo);
-    showStats(report); renderAllocation(report,portfolio.base); showHoldings(report); showAttribution(report); showExposure(report,sectors); showSimulation(report,rates,sectors);
+    if (!portfolioRiskPage) {
+      showStats(report); renderAllocation(report,portfolio.base); showHoldings(report); showAttribution(report); showExposure(report,sectors);
+    }
+    showSimulation(report,rates,sectors);
   } else simulationAnalysis = null;
   renderNavHistory(portfolio.base,demo);
   renderPerformance();
+  renderSimulationRisk();
 }
 
 function orderClassification(value) {
@@ -416,6 +438,7 @@ function orderClassification(value) {
 }
 
 function drawOrders() {
+  if (!by("trade-list")) return;
   const accounts = [...new Set(portfolio.positions.map(row=>row.account))];
   if (!orders.length) {
     by("trade-list").innerHTML = '<p class="work-note">添加买入或卖出，查看换仓后集中度、现金和压力损失。</p>';
@@ -438,25 +461,28 @@ function drawOrders() {
   }).join("");
 }
 
-by("trade-list").addEventListener("click",event=>{
+by("trade-list")?.addEventListener("click",event=>{
   if (!event.target.closest("[data-remove-order]")) return;
   const index = Number(event.target.closest("[data-order]").dataset.order);
   orders.splice(index,1);
+  saveSimulationOrders();
   drawOrders();
   draw();
 });
-by("trade-list").addEventListener("input",event=>{
+by("trade-list")?.addEventListener("input",event=>{
   const name = event.target.dataset.orderField;
   if (!name) return;
   orders[Number(event.target.closest("[data-order]").dataset.order)][name] = event.target.value;
+  saveSimulationOrders();
   const rates = effectiveRates(autoRates,portfolio.rates);
   showSimulation(analyzePortfolio(portfolioRowsNow(),rates),rates);
   renderSimulationRisk();
   requestSimulationHistory();
 });
-by("add-trade").addEventListener("click",()=>{
+by("add-trade")?.addEventListener("click",()=>{
   const account = portfolio.positions[0]?.account || "";
   orders.push({account,side:"sell",symbol:"",quantity:"",price:"",fee:"0",currency:portfolio.base,classification:""});
+  saveSimulationOrders();
   drawOrders();
   by("trade-list").querySelector(".trade-entry:last-child input")?.focus();
 });
@@ -551,7 +577,7 @@ by("editor-form").addEventListener("submit",async event=>{
     const next = normalizePortfolio(draft);
     if (demo) portfolio = next;
     else await writePortfolio(next);
-    if (mode==="positions") orders = [];
+    if (mode==="positions") {orders=[];saveSimulationOrders();}
     editorDialog.close();
     drawOrders();
     draw();
@@ -586,6 +612,7 @@ by("import-portfolio").addEventListener("change",async event=>{
     if (raw.navHistory != null && !imported.navHistory) throw new Error("备份中的估值持仓记录格式有误");
     await writePortfolio(imported,imported.navHistory);
     orders = [];
+    saveSimulationOrders();
     by("base-currency").value = portfolio.base;
     if (editorDialog.open) editorDialog.close();
     drawOrders();
@@ -632,6 +659,7 @@ async function loadRates() {
     if (request !== fxRequest) return;
     autoRates = values.rates;
     fxInfo = values.label;
+    localWrite(portfolioFxKey,{date,rates:autoRates,label:fxInfo});
     markRequest();
   } catch {
     if (request!==fxRequest) return;
@@ -651,14 +679,14 @@ async function loadRates() {
 }
 
 for (const [button,mode] of [["edit-portfolio","positions"],["enter-first","positions"],["edit-exposure","weights"],["edit-rates","rates"],["edit-stress","scenarios"]]) {
-  by(button).addEventListener("click",()=>edit(mode));
+  by(button)?.addEventListener("click",()=>edit(mode));
 }
-for (const id of ["editor-import","import-first"]) by(id).addEventListener("click",()=>by("import-portfolio").click());
+for (const id of ["editor-import","import-first"]) by(id)?.addEventListener("click",()=>by("import-portfolio").click());
 by("editor-export").addEventListener("click",exportPortfolio);
 for (const id of ["download-example","editor-example"]) {
-  by(id).addEventListener("click",()=>downloadJson("Market-Portfolio-Example.json",{base:sample.base,positions:sample.positions}));
+  by(id)?.addEventListener("click",()=>downloadJson("Market-Portfolio-Example.json",{base:sample.base,positions:sample.positions}));
 }
-by("exit-demo").addEventListener("click",()=>location.reload());
+by("exit-demo")?.addEventListener("click",()=>location.reload());
 by("base-currency").innerHTML = currencyOptions(portfolio.base);
 by("base-currency").addEventListener("change",async event=>{
   const next = {...portfolio,base:event.target.value};
@@ -670,7 +698,7 @@ by("base-currency").addEventListener("change",async event=>{
   draw();
   refreshNavHistory(portfolio,livePortfolio,demo);
 });
-by("sample-portfolio").addEventListener("click",()=>{
+by("sample-portfolio")?.addEventListener("click",()=>{
   portfolio = normalizePortfolio(sample);
   demo = true;
   by("base-currency").value = portfolio.base;
@@ -678,7 +706,7 @@ by("sample-portfolio").addEventListener("click",()=>{
   draw();
   loadRates();
 });
-by("holdings-sort").addEventListener("change",draw);
+by("holdings-sort")?.addEventListener("change",draw);
 by("live-portfolio").checked = livePortfolio;
 by("live-portfolio").addEventListener("change",event=>{
   livePortfolio = event.target.checked;
@@ -690,7 +718,7 @@ by("live-portfolio").addEventListener("change",event=>{
   refreshPerformance();
 });
 const publicDialog = by("public-dialog");
-by("public-portfolio").addEventListener("click",()=>{
+by("public-portfolio")?.addEventListener("click",()=>{
   const rows = publicPositions();
   displayPublicRows("public-draft",rows);
   by("public-error").textContent = "";
@@ -700,12 +728,12 @@ by("public-portfolio").addEventListener("click",()=>{
   by("export-public").disabled = !rows.length;
   publicDialog.showModal();
 });
-by("export-public").addEventListener("click",()=>{
+by("export-public")?.addEventListener("click",()=>{
   const positions = publicPositions();
   if (positions.length) downloadJson("portfolio-public.json",{positions,publishedAt:new Date().toISOString()});
 });
 for (const [id,mode] of [["publish-portfolio","publish"],["unpublish-portfolio","unpublish"]]) {
-  by(id).addEventListener("click",async()=>{
+  by(id)?.addEventListener("click",async()=>{
     try {
       await updateDatabase(mode,{positions:mode==="publish"?publicPositions():[]});
       await publicSnapshot();
@@ -725,9 +753,9 @@ const refreshLivePortfolio = (force = false)=>{
   }
 };
 by("refresh").addEventListener("click",()=>refreshLivePortfolio(true));
+initPortfolioAnalysis();
 initNavChart();
 initPerformance();
-initPortfolioAnalysis();
 drawOrders();
 draw();
 refreshLivePortfolio();
@@ -743,6 +771,52 @@ openDatabase().finally(()=>{
   refreshNavHistory(portfolio,livePortfolio,demo);
   refreshPerformance();
 });
-publicSnapshot();
+if (!portfolioRiskPage) publicSnapshot();
+window.addEventListener("storage",event=>{
+  if (event.key===analysisRateKey) {
+    for (const currency of Object.keys(analysisRates)) delete analysisRates[currency];
+    Object.assign(analysisRates,localRead(analysisRateKey,{}));
+    renderRiskAnalysis();
+  }
+  if (event.key==="market-observation-live-prices") {
+    livePortfolio = localRead(event.key,true);
+    by("live-portfolio").checked = livePortfolio;
+    draw();
+    refreshLivePortfolio();
+  }
+  if (event.key===analysisPreferencesKey) {
+    Object.assign(analysisPreferences,localRead(analysisPreferencesKey,{}));
+    syncAnalysisRanges();
+    if (by("performance-benchmark")) by("performance-benchmark").value = performanceReference();
+    if (by("risk-recorded")) by("risk-recorded").checked = Boolean(analysisPreferences.recordedOnly);
+    if (by("drawdown-limit")) by("drawdown-limit").value = +(analysisDrawdownLimit()*100).toFixed(2);
+    draw();
+  }
+  if (event.key===concentrationLimitsKey) {
+    const limits = localRead(concentrationLimitsKey,{});
+    for (const key of Object.keys(concentrationFields)) {
+      if (!fnum(limits[key])) continue;
+      analysisLimits[key] = limits[key];
+      if (by("concentration-"+key+"-limit")) by("concentration-"+key+"-limit").value = limits[key];
+    }
+    draw();
+  }
+  if (event.key===simulationOrdersKey && !demo) {
+    orders = readSimulationOrders();
+    drawOrders();
+    draw();
+    refreshPerformance();
+  }
+  if (event.key===storageKeys.portfolio && !demo) {
+    const fresh = readPortfolioBook();
+    if (!fresh) return;
+    try {portfolio = normalizePortfolio(fresh);}
+    catch {return;}
+    by("base-currency").value = portfolio.base;
+    drawOrders();
+    draw();
+    refreshLivePortfolio();
+  }
+});
 setInterval(()=>{if(!document.hidden)refreshLivePortfolio();},60000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshLivePortfolio();});
