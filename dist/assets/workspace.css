@@ -327,3 +327,35 @@ a.world-cross-quote:is(:hover,:focus-visible) > span {color:var(--accent)}
   .allocation-chart {max-width:150px}
   .allocation-legend {max-height:173px}
 }
+
+/* Portfolio performance and risk */
+.performance-block {margin-top:.7rem;padding-top:.65rem;border-top:1px solid var(--line);
+  --benchmark-equity:#8655b9;--benchmark-cash:#596b7b;--benchmark-mix:#a45728}
+[data-theme="dark"] .performance-block {--benchmark-equity:#b39adb;--benchmark-cash:#9cacbd;--benchmark-mix:#dca173}
+.performance-heading {flex-wrap:wrap;margin-bottom:.25rem}
+.performance-heading h3 {margin:0;font-size:1rem}
+.performance-heading .page-tools label {color:var(--muted);font-size:.8rem}
+.performance-legend,.performance-readout {display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .9rem}
+.performance-legend {margin:.4rem 0 .3rem;font-size:.8rem}
+.performance-benchmark {display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap}
+.performance-benchmark i {width:.85rem;height:2px;border-radius:2px;background:var(--series-color)}
+.performance-benchmark:has(:disabled) {color:var(--muted)}
+.performance-readout {min-height:1.6rem;justify-content:flex-start;font-variant-numeric:tabular-nums}
+.performance-readout .up,.performance-readout .down {font-weight:650}
+.performance-tables {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem}
+.performance-block #performance-chart {height:clamp(150px,26dvh,255px)}
+.risk-metrics {display:grid;grid-template-columns:repeat(auto-fit,minmax(106px,1fr));gap:.38rem;margin:.45rem 0 .6rem}
+.risk-metrics>div {padding:.42rem .5rem;border:1px solid var(--line);border-radius:6px}
+.risk-metrics dt,.risk-method dd {font-size:.77rem;color:var(--muted)}
+.risk-metrics dd {margin:.12rem 0 0;font-weight:700;font-variant-numeric:tabular-nums}
+.risk-method {margin:.32rem 0}
+.risk-method>div {display:grid;grid-template-columns:minmax(5.8rem,1fr) minmax(0,2.5fr);gap:.45rem;padding:.31rem 0;border-bottom:1px solid var(--line)}
+.risk-method dt {font-size:.77rem;font-weight:650}
+.risk-method dd {margin:0}
+.risk-matrix {width:max-content;min-width:100%}
+.risk-matrix td,.risk-matrix th {white-space:nowrap}
+.risk-matrix td:first-child,.risk-matrix th:first-child {position:sticky;left:0;background:var(--page)}
+.risk-matrix .risk-aligned {background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.risk-matrix .risk-inverse {background:color-mix(in srgb,var(--down) 11%,transparent)}
+#sector-exposure-sources a {display:inline-block;margin-right:.42rem}
+@media(max-width:680px) {.performance-tables {grid-template-columns:1fr}.performance-heading .page-tools {justify-content:flex-start}}

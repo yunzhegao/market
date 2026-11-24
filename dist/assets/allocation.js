@@ -5,7 +5,6 @@ const allocationColors = {
   gold:"#be9b44", duration:"#86a45d", cash:"#687d9c",
 };
 let allocationMode = "category";
-const allocationSelected = new Map();
 let allocationReport;
 let allocationCurrency;
 
@@ -73,9 +72,8 @@ function circleSegments(rows,total,radius) {
   }).join("");
 }
 
-function chooseAllocation(panel,scope,rows,key) {
+function chooseAllocation(panel,rows,key) {
   const current = rows.find(row=>row.key===key) ?? rows[0];
-  allocationSelected.set(scope,current.key);
   const {label,value,impact,rate,partial} = current;
   panel.querySelector(".allocation-center").innerHTML = '<span title="'+esc(label)+'">'+esc(label)+'</span><strong>'+fmt(value)+'</strong><small>'
     +esc(allocationCurrency)+'</small><b class="'+tone(impact)+'">'+pctText(rate)+'</b>';
@@ -98,11 +96,11 @@ function allocationLegend(total, rows) {
     +'</span><span class="'+tone(row.impact)+'">'+plus(row.impact)+'</span></button>').join("");
 }
 
-function renderAllocationPanel(panel,{scope,name,values},compare) {
+function renderAllocationPanel(panel,{name,values},compare) {
   const heading = compare ? '<h3>'+esc(name)+'</h3>' : "";
   const excludeCash = by("allocation-exclude-cash").checked;
   const shown = values.filter(row=>fnum(row.marketValue) && row.marketValue>=0 && !(excludeCash&&cashClass(row)));
-  const summary = {...allocationRollup(shown),key:"total",label:name||"组合市值"};
+  const summary = {...allocationRollup(shown),key:"total",label:excludeCash?"非现金市值":name?"账户总市值":"组合市值"};
   if (!(summary.value>0)) {
     panel.innerHTML = heading+'<p class="work-note">'+(excludeCash?"暂无可计价的非现金持仓":"暂无可计价持仓")+'</p>';
     return;
@@ -118,12 +116,17 @@ function renderAllocationPanel(panel,{scope,name,values},compare) {
     +'<div class="allocation-row allocation-head"><span>分类／持仓</span><span>权重</span><span>涨跌</span><span>变动贡献</span></div>'
     +'<div class="allocation-legend">'+allocationLegend(summary,[...groups,...assets])+'</div></div></div>'
     +'<p class="work-note allocation-partial" hidden>涨跌按有完整前收和汇率的持仓计算。</p>';
+  const reset = ()=>chooseAllocation(panel,rows);
   for (const item of panel.querySelectorAll("[data-allocation-item]")) {
-    const select=()=>chooseAllocation(panel,scope,rows,item.dataset.allocationItem);
-    item.addEventListener(item.tagName.toLowerCase()==="button"?"focus":"pointerenter",select);
+    const select = ()=>chooseAllocation(panel,rows,item.dataset.allocationItem);
+    item.addEventListener("pointerenter",select);
+    item.addEventListener("pointerleave",reset);
+    item.addEventListener("focus",select);
+    item.addEventListener("blur",reset);
     item.addEventListener("click",select);
+    item.addEventListener("keydown",event=>{if(event.key==="Escape") reset();});
   }
-  chooseAllocation(panel,scope,rows,allocationSelected.get(scope));
+  reset();
 }
 
 function drawAllocation() {
@@ -162,14 +165,10 @@ function renderAllocation(report,currency) {
 }
 
 by("allocation-account").addEventListener("change",drawAllocation);
-by("allocation-exclude-cash").addEventListener("change",()=>{
-  allocationSelected.clear();
-  drawAllocation();
-});
+by("allocation-exclude-cash").addEventListener("change",drawAllocation);
 for (const button of document.querySelectorAll("[data-allocation-mode]")) {
   button.addEventListener("click",()=>{
     allocationMode=button.dataset.allocationMode;
-    allocationSelected.clear();
     for (const peer of document.querySelectorAll("[data-allocation-mode]")) {
       peer.setAttribute("aria-pressed",String(peer===button));
     }

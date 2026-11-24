@@ -16,7 +16,7 @@ const hasOHLC = row => row.slice(2, 5).length === 3 && row.slice(2, 5).every(Num
 
 function drawMarketPlot(target, rows, {candle = false, base, history = rows, pointLabel = row => String(row[0]), axisLabel = pointLabel,
   sessionDay, sessionLabel, axisFormat = String, axisWidth = 38, timeDomain, timeLabel, timeTicks, candleSlot,
-  estimated = () => false, breakLine = () => false, quietCursor = false, comparison, formatDelta} = {}) {
+  estimated = () => false, breakLine = () => false, quietCursor = false, comparison, formatDelta, overlays = []} = {}) {
   const points = candle ? rows.filter(hasOHLC) : rows;
   if (!points.length) {
     target.replaceChildren();
@@ -33,6 +33,7 @@ function drawMarketPlot(target, rows, {candle = false, base, history = rows, poi
   const timeX = time => left + inset + (time - startTime) / timeSpan * (right - left - 2*inset);
   const x = !sessions && timeSpan > 0 ? index => timeX(points[index][0]) : index => left + step * (index + .5);
   const values = points.flatMap(r => candle ? [r[3], r[4]] : [r[1]]);
+  for (const overlay of overlays) values.push(...overlay.values.filter(Number.isFinite));
   if (Number.isFinite(base)) values.push(base);
   const {low, high, y} = priceScale(values, top, bottom);
   const grid = Array.from({length: height < 110 ? 3 : 5}, (_, i) => {
@@ -89,7 +90,17 @@ function drawMarketPlot(target, rows, {candle = false, base, history = rows, poi
           + '<path fill="none" stroke="var(--chart-line)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"'+dash+' d="' + path + '"/>';
       }).join("");
   }
-  target.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" aria-hidden="true">' + grid + separators + reference + graphics + dateTicks
+  const comparisonLines = overlays.map(overlay=>{
+    let connected = false;
+    const path = overlay.values.map((value,i)=>{
+      if (!Number.isFinite(value)) {connected=false;return "";}
+      const command = connected ? "L" : "M";
+      connected = true;
+      return command+x(i)+","+y(value);
+    }).join(" ");
+    return '<path fill="none" stroke="'+overlay.color+'" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="'+path+'"/>';
+  }).join("");
+  target.innerHTML = '<svg viewBox="0 0 ' + width + ' ' + height + '" aria-hidden="true">' + grid + separators + reference + graphics + comparisonLines + dateTicks
     + '<line data-guide style="opacity:0" stroke="var(--chart-guide)" stroke-opacity=".75" stroke-dasharray="4 3"/><circle data-cursor style="opacity:0" r="4.1" fill="var(--chart-line)" stroke="var(--chart-dot-ring)" stroke-width="1.6"/></svg>';
   const tip = document.createElement("div");
   tip.className = "chart-point-tip";

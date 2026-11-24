@@ -8,16 +8,18 @@
   <title>个人投资组合分析 · 市场观察</title>
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/styles.css">
-  <link rel="stylesheet" href="./assets/workspace.css">
+  <link rel="stylesheet" href="./assets/workspace.css?v=performance-1">
   <script defer src="./assets/live-config.js"></script>
   <script defer src="./assets/world-snapshot.js"></script>
   <script defer src="./assets/portfolio-model.js"></script>
   <script defer src="./assets/workspace.js"></script>
-  <script defer src="./assets/allocation.js"></script>
-  <script defer src="./assets/market-plot.js"></script>
-  <script defer src="./assets/portfolio-nav.js"></script>
-  <script defer src="./assets/portfolio-etf.js"></script>
-  <script defer src="./assets/portfolio.js"></script>
+  <script defer src="./assets/allocation.js?v=performance-1"></script>
+  <script defer src="./assets/market-plot.js?v=performance-1"></script>
+  <script defer src="./assets/portfolio-nav.js?v=performance-1"></script>
+  <script defer src="./assets/portfolio-etf.js?v=performance-1"></script>
+  <script defer src="./assets/performance-model.js?v=performance-1"></script>
+  <script defer src="./assets/portfolio-performance.js?v=performance-1"></script>
+  <script defer src="./assets/portfolio.js?v=performance-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -108,6 +110,40 @@
           </details>
         </div>
         <p class="work-note" id="nav-history-method">虚线标记回算。缺少行情或汇率的日期留空。净值含出入金。</p>
+        <div class="performance-block">
+          <div class="section-line performance-heading">
+            <h3>组合历史表现</h3>
+            <div class="page-tools">
+              <label for="performance-account">账户</label><select id="performance-account"><option value="all">全部账户</option></select>
+              <label for="performance-benchmark">比较基准</label><select id="performance-benchmark"></select>
+            </div>
+          </div>
+          <p id="performance-status" class="work-note" role="status"></p>
+          <div id="performance-data" hidden>
+            <div id="performance-legend" class="performance-legend" aria-label="显示基准曲线"></div>
+            <div id="performance-chart" class="chart" tabindex="0" role="group" aria-label="累计收益图，使用左右方向键查看收益"></div>
+            <div id="performance-readout" class="chart-readout performance-readout" aria-live="polite"></div>
+            <details class="work-method" id="performance-accounts" hidden>
+              <summary>账户收益与风险对比</summary>
+              <p class="work-note" id="performance-account-status"></p>
+              <div class="work-table-wrap" id="performance-account-data"><table class="work-table" id="performance-account-table"></table></div>
+            </details>
+            <details class="work-method" id="performance-attribution">
+              <summary>区间收益与回撤归因</summary>
+              <p class="work-note" id="performance-drawdown"></p>
+              <p class="work-note">贡献按期初净值计为百分点。行业回撤以最新可用 ETF 行业权重分摊价格贡献；汇率单列，含价汇交互项。</p>
+              <div class="performance-tables">
+                <div class="work-table-wrap"><table class="work-table" id="performance-asset-attribution" aria-label="持仓收益与回撤贡献"></table></div>
+                <div class="work-table-wrap"><table class="work-table" id="performance-sector-attribution" aria-label="行业收益与回撤贡献"></table></div>
+              </div>
+            </details>
+          </div>
+          <details class="work-method">
+            <summary>历史收益口径</summary>
+            <p>每次以上一估值时点的持仓权重计算到下一时点的收益，再逐期相乘。直接排除持仓数量变动带来的市值跳变。缺少逐笔流水时，日内交易时点、分红再投资差异、税费和滑点无法还原。</p>
+            <p>组合和基准统一按显示币种、起点和新加坡时间周二至周六 06:00 的收盘估值取样。证券收益使用分红和拆股调整收盘价，现金含汇率变化。60% SPYM + 40% BOXX 每期恢复到目标权重，未扣再平衡成本。报价缺失时采用最长的连续有效区间。</p>
+          </details>
+        </div>
       </section>
       <div class="portfolio-layout" id="portfolio-details">
         <div class="work-stack">
@@ -136,6 +172,11 @@
             <div class="section-line"><div class="exposure-heading"><h2 id="exposure-title">穿透与重叠敞口</h2><span id="lookthrough-coverage" class="coverage-label"></span></div><button type="button" id="edit-exposure" class="text-button">编辑 ETF 成分权重</button></div>
             <div class="work-table-wrap"><table class="work-table" id="lookthrough-table"></table></div>
             <p class="work-note" id="lookthrough-note"></p>
+            <details class="work-method" open>
+              <summary>行业穿透</summary>
+              <div class="work-table-wrap"><table class="work-table" id="sector-exposure-table"></table></div>
+              <p class="work-note" id="sector-exposure-sources"></p>
+            </details>
             <details class="work-method" id="etf-disclosure" hidden>
               <summary>ETF 持仓披露与变化</summary>
               <div class="work-table-wrap"><table class="work-table" id="etf-disclosure-table"></table></div>
@@ -163,6 +204,25 @@
             <div class="section-line"><h2 id="stress-title">压力情景</h2><button type="button" class="text-button" id="edit-stress">调整冲击</button></div>
             <div class="work-table-wrap"><table class="work-table" id="stress-table"></table></div>
             <p class="work-note">冲击由你设定。外币冲击相对当前显示币种。</p>
+          </section>
+          <section class="panel work-panel" aria-labelledby="risk-title">
+            <div class="section-line"><h2 id="risk-title">组合风险分析</h2><span id="risk-account"></span></div>
+            <p class="work-note" id="risk-status" role="status"></p>
+            <div id="risk-data" hidden>
+              <dl class="risk-metrics" id="risk-metrics"></dl>
+              <details class="work-method" open>
+                <summary>持仓波动风险贡献</summary>
+                <div class="work-table-wrap"><table class="work-table" id="risk-contribution"></table></div>
+              </details>
+              <details class="work-method">
+                <summary>持仓相关性矩阵</summary>
+                <div class="work-table-wrap"><table class="work-table risk-matrix" id="risk-correlation"></table></div>
+              </details>
+            </div>
+            <details class="work-method">
+              <summary>风险指标说明</summary>
+              <dl class="risk-method" id="risk-method"></dl>
+            </details>
           </section>
         </div>
       </div>

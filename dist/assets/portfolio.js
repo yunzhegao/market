@@ -79,7 +79,10 @@ async function writePortfolio(next, restoredHistory = null) {
   navStorageError = !saved;
   persistenceWarning = saved || databaseVersion !== null ? "" : "浏览器未允许本地保存。可用「导出备份」保留修改。";
   if (saved) window.dispatchEvent(new Event(portfolioEvent));
-  if (navInitialized) refreshNavHistory(portfolio,livePortfolio,demo);
+  if (navInitialized) {
+    refreshNavHistory(portfolio,livePortfolio,demo);
+    refreshPerformance();
+  }
 }
 
 function portfolioQuote(row) {
@@ -295,6 +298,7 @@ function showExposure(report) {
     ? "覆盖率按已计价股票型 ETF 市值加权。"
     : "暂无可计价的股票型 ETF。");
   renderEtfDisclosures(funds,portfolio.weights,demo?{}:etfDisclosures);
+  renderSectorExposure(report,portfolio,demo);
 }
 
 function compare(before,after) {
@@ -378,6 +382,7 @@ function draw() {
     showStats(report); renderAllocation(report,portfolio.base); showHoldings(report); showAttribution(report); showExposure(report); showSimulation(report,rates);
   }
   renderNavHistory(portfolio.base,demo);
+  renderPerformance();
 }
 
 function orderClassification(value) {
@@ -658,6 +663,7 @@ by("live-portfolio").addEventListener("change",event=>{
   loadRates();
   refreshPortfolioQuotes();
   refreshNavHistory(portfolio,livePortfolio,demo,true);
+  refreshPerformance();
 });
 const publicDialog = by("public-dialog");
 by("public-portfolio").addEventListener("click",()=>{
@@ -688,10 +694,15 @@ const refreshLivePortfolio = (force = false)=>{
   loadRates();
   refreshPortfolioQuotes();
   refreshEtfDisclosures(force).then(changed=>{if(changed)draw();});
-  if (navInitialized) refreshNavHistory(portfolio,livePortfolio,demo,force);
+  refreshEtfSectors(force).then(changed=>{if(changed)draw();});
+  if (navInitialized) {
+    refreshNavHistory(portfolio,livePortfolio,demo,force);
+    refreshPerformance(force);
+  }
 };
 by("refresh").addEventListener("click",()=>refreshLivePortfolio(true));
 initNavChart();
+initPerformance();
 drawOrders();
 draw();
 refreshLivePortfolio();
@@ -705,6 +716,7 @@ openDatabase().finally(()=>{
   }
   navInitialized = true;
   refreshNavHistory(portfolio,livePortfolio,demo);
+  refreshPerformance();
 });
 publicSnapshot();
 setInterval(()=>{if(!document.hidden)refreshLivePortfolio();},60000);

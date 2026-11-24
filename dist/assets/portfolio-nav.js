@@ -39,12 +39,12 @@ function navRangeDates(range, now) {
   return {from,to};
 }
 
-function navHoldings(positions) {
+function navHoldings(positions, byAccount = false) {
   const grouped = new Map();
-  for (const {kind,symbol,currency,quantity} of positions) {
+  for (const {kind,symbol,currency,quantity,account} of positions) {
     if (!(quantity > 0)) continue;
-    const key = [kind,symbol,currency].join("/");
-    const row = grouped.get(key) ?? {kind,symbol,currency,quantity:0};
+    const key = JSON.stringify(byAccount ? [account,kind,symbol,currency] : [kind,symbol,currency]);
+    const row = grouped.get(key) ?? {kind,symbol,currency,quantity:0,...(byAccount?{account}:{})};
     row.quantity += quantity;
     grouped.set(key,row);
   }
@@ -66,9 +66,15 @@ function normalizeNavHistory(raw) {
   if (!Array.isArray(raw?.snapshots) || raw.snapshots.length > navHistoryDays+3) return null;
   const read = row => {
     if (!/^[0-9a-f]{32}$/.test(row?.id ?? "") || !Array.isArray(row.holdings) || row.holdings.length > 400) return null;
-    if (!row.holdings.every(item=>item && Object.hasOwn(assetKinds,item.kind) && currencyValid(item.currency)
-      && typeof item.symbol === "string" && symbolValid(item.symbol) && fnum(item.quantity) && item.quantity > 0)) return null;
-    return {id:row.id,holdings:navHoldings(row.holdings)};
+    const valid = item=>item && Object.hasOwn(assetKinds,item.kind) && currencyValid(item.currency)
+      && typeof item.symbol === "string" && symbolValid(item.symbol) && fnum(item.quantity) && item.quantity > 0;
+    if (!row.holdings.every(valid)) return null;
+    const snapshot = {id:row.id,holdings:navHoldings(row.holdings)};
+    if (Array.isArray(row.accounts) && row.accounts.length<=400 && row.accounts.every(item=>valid(item)
+      && typeof item.account==="string" && item.account.length>0 && item.account.length<=90)) {
+      snapshot.accounts = navHoldings(row.accounts,true);
+    }
+    return snapshot;
   };
   const snapshots = new Map();
   for (const row of raw.snapshots) {
@@ -83,6 +89,7 @@ function normalizeNavHistory(raw) {
 
 function recordNavHoldings(state, previous = state.navHistory, now = Date.now()) {
   const holdings = navHoldings(state.positions);
+  const accounts = navHoldings(state.positions,true);
   if (!previous && !holdings.length) return state;
   const schedule = previous?.snapshots ?? [];
   const today = navDate(now);
@@ -91,10 +98,12 @@ function recordNavHoldings(state, previous = state.navHistory, now = Date.now())
   const anchor = schedule.findLast(row=>row.date<oldest);
   let snapshots = schedule.filter(row=>row.date>=oldest || row===anchor);
   const applicable = snapshots.findLast(row=>row.date<=date);
-  if (JSON.stringify(applicable?.holdings) !== JSON.stringify(holdings)) {
-    snapshots = [...snapshots.filter(row=>row.date<date),{...navSnapshot(holdings),date},...snapshots.filter(row=>row.date>date)];
+  const sameHoldings = JSON.stringify(applicable?.holdings) === JSON.stringify(holdings);
+  if (!sameHoldings || JSON.stringify(applicable?.accounts) !== JSON.stringify(accounts)) {
+    const snapshot = sameHoldings ? {id:applicable.id,holdings} : navSnapshot(holdings);
+    snapshots = [...snapshots.filter(row=>row.date<date),{...snapshot,accounts,date},...snapshots.filter(row=>row.date>date)];
   }
-  const reference = previous?.reference ?? (holdings.length ? navSnapshot(holdings) : null);
+  const reference = previous?.reference ?? (holdings.length ? {...navSnapshot(holdings),accounts} : null);
   let remaining = navArchiveLimit-JSON.stringify(reference).length;
   let keepFrom = snapshots.length;
   while (keepFrom>0) {
@@ -399,6 +408,10 @@ function initNavChart() {
       navView.selected = null;
       for (const option of buttons) option.setAttribute("aria-pressed",String(selectedValue(option)===value));
       renderNavHistory(portfolio.base,demo);
+      if (field==="range") {
+        performanceView.selected = null;
+        renderPerformance();
+      }
     });
   };
   bindChoices("range");

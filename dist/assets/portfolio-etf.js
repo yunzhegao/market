@@ -81,3 +81,97 @@ function renderEtfDisclosures(funds, weights, disclosures) {
       +etfChanges(current,previous)))];
   }));
 }
+
+const sectorNames = {
+  technology:"信息技术",financials:"金融",communication:"通讯服务",health:"医疗保健",
+  discretionary:"非必需消费",industrial:"工业",staples:"必需消费",energy:"能源",
+  utilities:"公用事业",realestate:"房地产",materials:"原材料",gold:"黄金",
+  duration:"长久期债券",reserve:"现金替代",cash:"现金",unknown:"行业未分类",
+};
+const knownStockSectors = {
+  AAPL:"technology",NVDA:"technology",MSFT:"technology",TSM:"technology",AVGO:"technology",
+  AMD:"technology",QCOM:"technology",TXN:"technology",ORCL:"technology",PLTR:"technology",
+  AMZN:"discretionary",TSLA:"discretionary",HD:"discretionary",META:"communication",
+  "BRK-B":"financials",GOOG:"communication",GOOGL:"communication",VZ:"communication",
+  "O39.SI":"financials","D05.SI":"financials",BAC:"financials",HSBC:"financials",
+  IBKR:"financials",SMFG:"financials",JPM:"financials",V:"financials",MA:"financials",
+  LLY:"health",MRK:"health",UNH:"health",JNJ:"health",COST:"staples",PG:"staples",KO:"staples",
+  XOM:"energy",CVX:"energy",COP:"energy",
+};
+let etfSectors = {};
+let lastSectorRequest = 0;
+
+async function refreshEtfSectors(force) {
+  if (browserFile || (!force && Date.now()-lastSectorRequest<3600000)) return false;
+  lastSectorRequest = Date.now();
+  try {
+    const response = await fetch("./assets/etf-sectors.json",{cache:"no-cache",signal:AbortSignal.timeout(8000)});
+    if (!response.ok) return false;
+    const raw = await response.json();
+    const next = Object.fromEntries(Object.entries(raw).flatMap(([symbol,record])=>{
+      if (!symbolValid(symbol) || !validNavDate(record?.date) || typeof record.source!=="string"
+        || !/^https:\/\//.test(record.url) || !record.rows) return [];
+      const rows = Object.entries(record.rows).filter(([sector,weight])=>Object.hasOwn(sectorNames,sector)
+        && sector!=="unknown" && fnum(weight) && weight>0 && weight<=100);
+      const total = rows.reduce((sum,row)=>sum+row[1],0);
+      return total>=85 && total<=101 ? [[symbol,{...record,rows}]] : [];
+    }));
+    if (JSON.stringify(next)===JSON.stringify(etfSectors)) return false;
+    etfSectors = next;
+    return true;
+  } catch {return false;}
+}
+
+function createSectorLookup(state,isDemo) {
+  const classes = new Map(state.positions.map(row=>[row.symbol,row.bucket]));
+  const disclosures = isDemo ? {} : etfDisclosures;
+  const components = effectiveEtfWeights(state.weights,disclosures);
+  const stockSector = symbol => Object.hasOwn(knownStockSectors,symbol) ? knownStockSectors[symbol]
+    : classes.get(symbol)==="bank" ? "financials" : "unknown";
+  const cache = new Map();
+  return row=>{
+    const bucket = row.bucket ?? classes.get(row.symbol) ?? orderAssets[row.symbol]?.[1];
+    const key = [row.kind,row.symbol,bucket].join("/");
+    if (cache.has(key)) return cache.get(key);
+    let weights;
+    if (row.kind==="cash") weights = [["cash",1]];
+    else if (row.kind==="stock") weights = [[stockSector(row.symbol),1]];
+    else if (["gold","duration","reserve"].includes(bucket)) weights = [[bucket,1]];
+    else {
+      const disclosure = !isDemo && etfSectors[row.symbol];
+      const partial = disclosure ? disclosure.rows : components.filter(member=>member.fund===row.symbol)
+        .map(member=>[stockSector(member.member),member.weight]);
+      const total = partial.reduce((sum,item)=>sum+item[1],0);
+      const scale = disclosure && Math.abs(total-100)<.05 ? total : Math.max(100,total);
+      weights = partial.map(([sector,weight])=>[sector,weight/scale]);
+      if (total<scale) weights.push(["unknown",(scale-total)/scale]);
+    }
+    cache.set(key,weights);
+    return weights;
+  };
+}
+
+function renderSectorExposure(report,state,isDemo) {
+  const classify = createSectorLookup(state,isDemo);
+  const sectors = new Map();
+  const sources = new Set();
+  for (const row of report.values) {
+    if (!(row.marketValue>0)) continue;
+    const column = row.kind==="etf" ? 1 : 0;
+    if (!isDemo && row.kind==="etf" && Object.hasOwn(etfSectors,row.symbol)) sources.add(row.symbol);
+    for (const [sector,weight] of classify(row)) {
+      if (!sectors.has(sector)) sectors.set(sector,[0,0]);
+      sectors.get(sector)[column] += weight*row.marketValue;
+    }
+  }
+  const entries = [...sectors].sort((a,b)=>b[1][0]+b[1][1]-a[1][0]-a[1][1]);
+  table("sector-exposure-table",["行业／资产类别","直接持有","ETF 敞口","合计敞口"],entries.map(([sector,[direct,through]])=>[
+    td(esc(sectorNames[sector])),td(ratio(navWeight(direct,report.nav))),td(ratio(navWeight(through,report.nav))),
+    td("<strong>"+ratio(navWeight(direct+through,report.nav))+"</strong>"),
+  ]));
+  by("sector-exposure-sources").innerHTML = "权重以已计价组合市值为分母。使用发行人最近披露的行业权重，或已知成分；缺项归入「行业未分类」。"
+    + [...sources].sort().map(symbol=>{
+      const record = etfSectors[symbol];
+      return ' <a href="'+esc(record.url)+'" target="_blank" rel="noopener noreferrer">'+esc(symbol+" "+record.date+" · "+record.source)+'</a>';
+    }).join("");
+}

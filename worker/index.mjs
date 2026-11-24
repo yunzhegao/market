@@ -662,9 +662,15 @@ function valuationCutoffs(from, to, now = Date.now()) {
   return Array.from({length:(last-first)/dayMs+1}, (_,i)=>first+i*dayMs);
 }
 
-function completedValuationBars(chart, cutoffs, barMs) {
+function completedValuationBars(chart, cutoffs, barMs, adjusted = false) {
   const closes = chart.indicators?.quote?.[0]?.close ?? [];
-  const bars = (chart.timestamp ?? []).flatMap((seconds,i)=>finite(seconds)&&finite(closes[i])&&closes[i]>0 ? [[seconds*1000,closes[i]]] : []);
+  const returns = adjusted ? chart.indicators?.adjclose?.[0]?.adjclose : closes;
+  const splits = adjusted ? Object.values(chart.events?.splits ?? {}).filter(item=>finite(item.date)
+    && item.numerator>0 && item.denominator>0) : [];
+  const bars = (chart.timestamp ?? []).flatMap((seconds,i)=>{
+    if (!finite(seconds) || !finite(returns?.[i]) || !(returns[i]>0) || !finite(closes[i]) || !(closes[i]>0)) return [];
+    return [[seconds*1000,returns[i],closes[i]]];
+  });
   if (bars.some(([at],i)=>i>0 && at<bars[i-1][0])) bars.sort((a,b)=>a[0]-b[0]);
   let index = 0;
   if (barMs) return cutoffs.flatMap(cutoff=>{
@@ -688,39 +694,51 @@ function completedValuationBars(chart, cutoffs, barMs) {
   const session = currentTradingPeriod?.regular;
   const open = asOf(session?.start), close = asOf(session?.end);
   const closeTime = open && open.slice(0,10)===close.slice(0,10) && close > open ? close.slice(10) : null;
-  const daily = bars.map(([at,value])=>{
+  const splitsByDate = splits.map(({date,numerator,denominator})=>[asOf(date).slice(0,10),numerator/denominator]);
+  const daily = bars.map(([at,value,close])=>{
     const date = local(at).slice(0,10);
     const eligible = closeTime ? date+closeTime : new Date(Date.parse(date)+dayMs).toISOString().slice(0,10)+" 00:00:00";
-    return {at,value,eligible};
+    const unadjusted = splitsByDate.reduce((actual,[split,ratio])=>split>date ? actual*ratio : actual,close);
+    return {at,value,unadjusted,close,eligible};
   });
   return cutoffs.flatMap(cutoff=>{
     const at = local(cutoff);
     while (index < daily.length && daily[index].at<=cutoff && daily[index].eligible<=at) index++;
     const bar = daily[index-1];
     if (!bar || bar.at < cutoff-valuationCloseMaxAge) return [];
-    return [[valuationDate(cutoff),bar.value,bar.at<cutoff-valuationMaxAge?"carried-close":"close"]];
+    const row = [valuationDate(cutoff),bar.value,bar.at<cutoff-valuationMaxAge?"carried-close":"close"];
+    if (adjusted) row.push(bar.unadjusted,bar.close);
+    return [row];
   });
 }
 
-async function valuationPrices(symbol, cutoffs) {
+async function valuationPrices(symbol, cutoffs, performance = false) {
   const fx = valuationFxCurrency(symbol);
   const [main,alternate] = yahooHosts;
-  const attempts = [[symbol,main,"15m",900000],[symbol,alternate,"15m",900000],
-    [symbol,main,"60m",3600000],[fx?fx+"=X":symbol,alternate,"60m",3600000],
-    [symbol,main,"1d",0],[fx?fx+"=X":symbol,alternate,"1d",0]];
+  const daily = [[symbol,main,"1d",0],[fx?fx+"=X":symbol,alternate,"1d",0]];
+  const attempts = performance ? daily : [[symbol,main,"15m",900000],[symbol,alternate,"15m",900000],
+    [symbol,main,"60m",3600000],[fx?fx+"=X":symbol,alternate,"60m",3600000],...daily];
+  const adjusted = performance && !fx;
   const recent = Date.now()-35*dayMs;
   const dates = cutoffs.map(at=>[at,valuationDate(at)]);
-  const rows = new Map();
+  let rows = new Map();
   let currency;
   for (const [ticker,host,interval,barMs] of attempts) {
-    const pending = dates.flatMap(([at,date])=>(!barMs || at>=recent) && !rows.has(date) ? [at] : []);
+    const pending = dates.flatMap(([at,date])=>(!barMs || at>=recent) && (adjusted || !rows.has(date)) ? [at] : []);
     if (!pending.length) continue;
     const bounds = {period1:(pending[0]-(barMs?valuationMaxAge:valuationCloseMaxAge))/1000,period2:pending.at(-1)/1000};
+    if (adjusted) Object.assign(bounds,{includeAdjustedClose:"true",events:"splits"});
     try {
       const chart = await yahooSymbolChart(ticker,host,interval,bounds);
       const code = chart.meta?.currency;
       if (!code || (fx && code!==fx) || (currency && code!==currency)) continue;
-      for (const row of completedValuationBars(chart,pending,barMs)) {
+      const next = completedValuationBars(chart,pending,barMs,adjusted);
+      if (adjusted) {
+        if (next.length>rows.size) {
+          rows = new Map(next.map(row=>[row[0],row]));
+          currency = code;
+        }
+      } else for (const row of next) {
         rows.set(row[0],row);
         currency = code;
       }
@@ -886,13 +904,13 @@ export default {
       const rates = await latestFx();
       return Response.json({rates}, {status: Object.keys(rates).length > 1 ? 200 : 503, headers});
     }
-    if (scope === "valuation") {
+    if (scope === "valuation" || scope === "performance") {
       const symbols = [...new Set((url.searchParams.get("symbols") || "").split(","))];
       const cutoffs = valuationCutoffs(url.searchParams.get("from"),url.searchParams.get("to"));
       if (!cutoffs.length || symbols.length > 8 || !symbols.every(symbol=>worldSymbol.test(symbol))) {
         return Response.json({error:"valuation"},{status:400,headers});
       }
-      const prices = await gather(symbols,symbol=>valuationPrices(symbol,cutoffs));
+      const prices = await gather(symbols,symbol=>valuationPrices(symbol,cutoffs,scope==="performance"));
       await completeValuationFx(prices,cutoffs).catch(()=>{});
       return Response.json({prices},{headers});
     }
