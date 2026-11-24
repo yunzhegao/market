@@ -8,10 +8,10 @@
   <title>个人投资组合分析 · 市场观察</title>
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/styles.css">
-  <link rel="stylesheet" href="./assets/workspace.css?v=risk-1">
+  <link rel="stylesheet" href="./assets/workspace.css?v=journal-2">
   <script defer src="./assets/live-config.js"></script>
   <script defer src="./assets/world-snapshot.js"></script>
-  <script defer src="./assets/portfolio-model.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio-model.js?v=journal-1"></script>
   <script defer src="./assets/workspace.js?v=risk-1"></script>
   <script defer src="./assets/allocation.js?v=performance-1"></script>
   <script defer src="./assets/market-plot.js?v=performance-2"></script>
@@ -19,8 +19,9 @@
   <script defer src="./assets/portfolio-etf.js?v=risk-1"></script>
   <script defer src="./assets/performance-model.js?v=risk-1"></script>
   <script defer src="./assets/portfolio-performance.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio-analysis.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio-analysis.js?v=journal-1"></script>
+  <script defer src="./assets/portfolio-journal.js?v=journal-2"></script>
+  <script defer src="./assets/portfolio.js?v=journal-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -63,6 +64,28 @@
       </div>
     </div>
     <p id="portfolio-status" class="work-status" role="status"></p>
+    <details class="work-method portfolio-journal journal-compact" id="portfolio-journal">
+      <summary>实际增长与流水 <small id="journal-summary-status"></small></summary>
+      <div class="page-tools journal-actions">
+        <button type="button" id="journal-add" class="text-button">添加流水</button>
+        <button type="button" id="journal-checkpoint" class="text-button">录入对账快照</button>
+        <button type="button" id="journal-cover" class="text-button">确认覆盖区间</button>
+      </div>
+      <p id="journal-status" class="work-note" role="status"></p>
+      <div id="journal-results" class="journal-results" hidden>
+        <span id="journal-growth-period"></span><span>净入金 <strong id="journal-net-in"></strong></span><span><span id="journal-growth-label">投资净增长</span> <strong id="journal-growth"></strong></span>
+      </div>
+      <details class="work-method" id="journal-reconciliation" hidden>
+        <summary id="journal-reconciliation-summary">持仓对账</summary>
+        <p class="work-note" id="journal-reconciliation-status"></p>
+        <div class="work-table-wrap" id="journal-differences-wrap"><table class="work-table" id="journal-differences"></table></div>
+      </details>
+      <details class="work-method" id="journal-details">
+        <summary>流水与快照明细</summary>
+        <p class="work-note">记录仅保存在本浏览器。可在「编辑持仓」中更新当前股数和现金。</p>
+        <div class="work-table-wrap"><table class="work-table" id="journal-table"></table></div>
+      </details>
+    </details>
     <section id="portfolio-public-view" class="panel work-panel public-portfolio" hidden>
       <div class="section-line"><h2>持仓展示</h2><span id="published-time"></span></div>
       <div class="work-table-wrap"><table class="work-table" id="public-holdings"></table></div>
@@ -212,6 +235,39 @@
       <p class="work-note" id="export-history-status" role="status"></p>
       <div class="page-tools"><button type="button" class="compact-button" id="export-analysis-current">导出当前视图</button><button type="button" class="solid-button" id="export-analysis-full">导出完整历史数据</button></div>
     </div>
+  </dialog>
+  <dialog id="journal-dialog" class="editor-dialog journal-dialog" aria-labelledby="journal-entry-title">
+    <div class="dialog-header"><h2 id="journal-entry-title">录入本机记录</h2><form method="dialog"><button class="close-button" aria-label="关闭">×</button></form></div>
+    <form class="dialog-body" id="journal-form">
+      <div class="editor-fields journal-fields">
+        <label>类型<select id="journal-kind" name="kind"></select></label>
+        <label><span id="journal-date-label">入账日期</span><input id="journal-date" name="date" type="date"></label>
+        <label>再投资成交日期（不同时填写）<input id="journal-position-date" name="positionDate" type="date"></label>
+        <label>账户<input id="journal-account" name="account" maxlength="90"></label>
+        <label>证券代码<input id="journal-symbol" name="symbol" maxlength="19"></label>
+        <label>币种<select id="journal-currency" name="currency"></select></label>
+        <label>股数<input id="journal-quantity" name="quantity" type="number" step="any" min="0"></label>
+        <label><span id="journal-amount-label">金额</span><input id="journal-amount" name="amount" type="number" step="any" min="0"></label>
+        <label>再投资实际扣款（可选）<input id="journal-reinvest-amount" name="reinvestAmount" type="number" step="any" min="0"></label>
+        <label>折合币种<select id="journal-converted-currency" name="convertedCurrency"></select></label>
+        <label>折合金额（可选）<input id="journal-converted-amount" name="convertedAmount" type="number" step="any" min="0"></label>
+      </div>
+      <label class="quote-switch"><input id="journal-pending" type="checkbox" checked>待核对</label>
+      <label class="quote-switch" id="journal-capture-wrap" hidden><input id="journal-capture" type="checkbox">一并保存该日期的持仓股数</label>
+      <p class="work-note" id="journal-entry-help"></p>
+      <label class="journal-note">备注（可选）<input id="journal-note" name="note" maxlength="240"></label>
+      <p class="work-error" id="journal-entry-error" role="alert"></p>
+      <div class="editor-actions"><button type="button" class="text-button" id="journal-delete" hidden>删除记录</button><button type="submit" class="solid-button">保存记录</button></div>
+    </form>
+  </dialog>
+  <dialog id="journal-cover-dialog" class="editor-dialog journal-dialog" aria-labelledby="journal-cover-title">
+    <div class="dialog-header"><h2 id="journal-cover-title">确认流水覆盖区间</h2><form method="dialog"><button class="close-button" aria-label="关闭">×</button></form></div>
+    <form class="dialog-body" id="journal-cover-form">
+      <p class="work-note">核对该区间的交易、分红及出入金后再确认。期初净值已包含起点当日流水，净入金按起点次日到期末日统计。区间没有流水也可确认。</p>
+      <div class="editor-fields"><label>起点<input id="journal-cover-from" type="date" required></label><label>截止日<input id="journal-cover-to" type="date" required></label></div>
+      <p class="work-error" id="journal-cover-error" role="alert"></p>
+      <div class="editor-actions"><button type="button" id="journal-cover-clear" class="text-button">清除覆盖区间</button><button type="submit" class="solid-button">确认区间</button></div>
+    </form>
   </dialog>
 </body>
 </html>

@@ -251,10 +251,12 @@ function exportAnalysis(mode) {
   const span = navRangeDates("year",now);
   const allNavDates = navDays(portfolio.navHistory,now,"year");
   const relevantSymbols = new Set(full ? performanceSymbols(portfolio,span.from,span.to) : []);
+  const journal = !demo ? readPrivateJournal() : emptyJournal();
   downloadPortfolioFile(full?"组合分析完整历史":"组合分析",portfolio.name,{
     schema:2,mode,base,account,demo,simulatedView:risk.scenario,
     units:{money:base,return:"小数（0.01 等于 1%）",concentration:"百分数（1 等于 1%）"},
     holdings:before?.values ?? [],
+    journalStatus:{coverage:journal.coverage,entries:journal.entries.length,pending:journal.entries.filter(row=>row.pending).length},
     nav:exportNav(navView.range),performance,
     risk:{range:riskView.range,requested:risk.requested,recordedOnly:risk.recordedOnly,annualRiskFreeRate:rate,
       minimumSamples:performanceMinimum,points:exportReturnRows(risk.result.rows,full),benchmarkPoints:exportReturnRows(risk.bench),

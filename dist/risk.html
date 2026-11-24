@@ -8,18 +8,19 @@
   <title>投资组合绩效与风险分析 · 市场观察</title>
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/styles.css">
-  <link rel="stylesheet" href="./assets/workspace.css?v=risk-1">
+  <link rel="stylesheet" href="./assets/workspace.css?v=journal-2">
   <script defer src="./assets/live-config.js"></script>
   <script defer src="./assets/world-snapshot.js"></script>
-  <script defer src="./assets/portfolio-model.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio-model.js?v=journal-1"></script>
   <script defer src="./assets/workspace.js?v=risk-1"></script>
   <script defer src="./assets/market-plot.js?v=performance-2"></script>
   <script defer src="./assets/portfolio-nav.js?v=risk-1"></script>
   <script defer src="./assets/portfolio-etf.js?v=risk-1"></script>
   <script defer src="./assets/performance-model.js?v=risk-1"></script>
   <script defer src="./assets/portfolio-performance.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio-analysis.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio-analysis.js?v=journal-1"></script>
+  <script defer src="./assets/portfolio-journal.js?v=journal-2"></script>
+  <script defer src="./assets/portfolio.js?v=journal-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -59,6 +60,12 @@
       </div>
     </div>
     <p id="portfolio-status" class="work-status" role="status"></p>
+    <section class="portfolio-journal journal-compact" id="portfolio-journal" aria-label="实际增长与流水">
+      <div class="journal-status-line"><span id="journal-status" role="status"></span><a href="./portfolio.html#portfolio-journal" class="text-button">实际增长与流水</a></div>
+      <div id="journal-results" class="journal-results" hidden>
+        <span id="journal-growth-period"></span><span>净入金 <strong id="journal-net-in"></strong></span><span><span id="journal-growth-label">投资净增长</span> <strong id="journal-growth"></strong></span>
+      </div>
+    </section>
     <div id="risk-simulation-banner" class="panel work-panel risk-simulation-banner" hidden>
       <span id="risk-simulation-status"></span>
       <a class="text-button" href="./risk.html">返回实际持仓</a>

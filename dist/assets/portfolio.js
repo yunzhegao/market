@@ -83,7 +83,10 @@ async function writePortfolio(next, restoredHistory = null) {
   const previous = restoredHistory ?? savedHistory
     ?? portfolio.navHistory ?? migrateNavHistory();
   next = recordNavHoldings(next,previous);
-  if (databaseVersion !== null) await updateDatabase("save",{portfolio:next});
+  if (databaseVersion !== null) {
+    const {journalId,...databasePortfolio} = next;
+    await updateDatabase("save",{portfolio:databasePortfolio});
+  }
   portfolio = next;
   demo = false;
   const saved = localWrite(storageKeys.portfolio,next);
@@ -177,7 +180,9 @@ async function openDatabase() {
     const data = await requestSavedPortfolio();
     if (!data) return;
     if (data.portfolio) {
-      const state = normalizePortfolio(data.portfolio);
+      const state = normalizePortfolio({...data.portfolio,journalId:undefined});
+      const local = readPortfolioBook();
+      if (local?.name===state.name && journalIdValid(local.journalId)) state.journalId = local.journalId;
       const stored = recordNavHoldings(state,state.navHistory ?? portfolio.navHistory ?? migrateNavHistory());
       navStorageError = !localWrite(storageKeys.portfolio,stored);
       if (!demo) {
@@ -423,6 +428,7 @@ function draw() {
   renderNavHistory(portfolio.base,demo);
   renderPerformance();
   renderSimulationRisk();
+  renderPortfolioJournal();
 }
 
 function orderClassification(value) {
@@ -598,8 +604,9 @@ function downloadPortfolioFile(prefix,rawName,data) {
 }
 
 function exportPortfolio() {
-  const {name:savedName,...data} = portfolio;
-  downloadPortfolioFile("组合备份",editor?.mode==="positions" ? editor.name : savedName,data);
+  const {name:savedName,journalId,...data} = portfolio;
+  const localJournal = !demo && journalId ? readPrivateJournal(journalId) : null;
+  downloadPortfolioFile("组合备份",editor?.mode==="positions" ? editor.name : savedName,{...data,...(localJournal?{localJournal}:{})});
 }
 
 by("import-portfolio").addEventListener("change",async event=>{
@@ -608,9 +615,22 @@ by("import-portfolio").addEventListener("change",async event=>{
   try {
     if (file.size>5*1024*1024) throw new Error("持仓备份应小于 5 MB");
     const raw = JSON.parse(await file.text());
-    const imported = normalizePortfolio(raw);
+    const imported = normalizePortfolio({...raw,journalId:undefined});
     if (raw.navHistory != null && !imported.navHistory) throw new Error("备份中的估值持仓记录格式有误");
-    await writePortfolio(imported,imported.navHistory);
+    if (raw.localJournal != null) {
+      const journal = normalizeJournal(raw.localJournal);
+      imported.journalId = newJournalId();
+      if (!localWrite(portfolioJournalPrefix+imported.journalId,journal)) throw new Error("浏览器无法恢复流水备份。");
+    } else if (imported.name===portfolio.name && portfolio.journalId) {
+      imported.journalId = portfolio.journalId;
+    }
+    try {await writePortfolio(imported,imported.navHistory);}
+    catch (error) {
+      if (raw.localJournal != null) {
+        try {localStorage.removeItem(portfolioJournalPrefix+imported.journalId);} catch {}
+      }
+      throw error;
+    }
     orders = [];
     saveSimulationOrders();
     by("base-currency").value = portfolio.base;
@@ -756,6 +776,7 @@ by("refresh").addEventListener("click",()=>refreshLivePortfolio(true));
 initPortfolioAnalysis();
 initNavChart();
 initPerformance();
+initPortfolioJournal();
 drawOrders();
 draw();
 refreshLivePortfolio();
@@ -773,6 +794,7 @@ openDatabase().finally(()=>{
 });
 if (!portfolioRiskPage) publicSnapshot();
 window.addEventListener("storage",event=>{
+  if (portfolio.journalId && event.key===portfolioJournalPrefix+portfolio.journalId) renderPortfolioJournal();
   if (event.key===analysisRateKey) {
     for (const currency of Object.keys(analysisRates)) delete analysisRates[currency];
     Object.assign(analysisRates,localRead(analysisRateKey,{}));

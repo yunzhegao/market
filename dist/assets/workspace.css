@@ -388,3 +388,15 @@ a.world-cross-quote:is(:hover,:focus-visible) > span {color:var(--accent)}
 .risk-page .risk-matrix td,.risk-page .risk-matrix th {padding:.45rem .5rem}
 #joint-stress-choices {margin:.45rem 0}
 @media(max-width:680px) {.risk-bottom {grid-template-columns:1fr}}
+
+.portfolio-journal {margin-bottom:.6rem}
+.journal-results {display:flex;flex-wrap:wrap;gap:.3rem .9rem;font-size:.8rem;font-variant-numeric:tabular-nums}
+.journal-results>span:first-child {color:var(--muted)}
+.journal-dialog {width:min(96vw,38rem)}
+.journal-fields>* {min-width:8rem;flex:1 1 8rem}
+.journal-note {display:grid;gap:.15rem;color:var(--muted);font-size:.75rem}
+
+.journal-compact {margin-top:0;font-size:.75rem}
+.journal-compact>summary small {margin-left:.4rem;color:var(--muted);font-weight:400}
+.journal-actions {margin-top:.42rem}
+.journal-status-line {display:flex;flex-wrap:wrap;gap:.2rem .55rem;align-items:baseline;color:var(--muted)}

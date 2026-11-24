@@ -95,9 +95,10 @@ function normalizePortfolio(raw) {
     return result;
   });
   const navHistory = raw.navHistory ? normalizeNavHistory(raw.navHistory) : null;
+  const journalId = /^[a-f0-9]{32}$/.test(raw.journalId ?? "") ? raw.journalId : null;
   return {name:normalizePortfolioName(raw.name),base:currencyValid(raw.base) ? raw.base : "USD",
     date:/^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : "",
-    positions, weights, rates, scenarios, ...(navHistory ? {navHistory} : {})};
+    positions, weights, rates, scenarios, ...(navHistory ? {navHistory} : {}), ...(journalId ? {journalId} : {})};
 }
 
 function effectiveRates(auto, manual) {
