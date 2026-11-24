@@ -94,7 +94,7 @@ async function writePortfolio(next, restoredHistory = null) {
   persistenceWarning = saved || databaseVersion !== null ? "" : "浏览器未允许本地保存。可用「导出备份」保留修改。";
   if (saved) window.dispatchEvent(new Event(portfolioEvent));
   if (navInitialized) {
-    refreshNavHistory(portfolio,livePortfolio,demo);
+    refreshNavHistory(portfolio,livePortfolio,demo,Boolean(restoredHistory));
     refreshPerformance();
   }
 }

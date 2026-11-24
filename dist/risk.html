@@ -14,13 +14,13 @@
   <script defer src="./assets/portfolio-model.js?v=journal-1"></script>
   <script defer src="./assets/workspace.js?v=risk-1"></script>
   <script defer src="./assets/market-plot.js?v=performance-2"></script>
-  <script defer src="./assets/portfolio-nav.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio-nav.js?v=reconciled-nav-1"></script>
   <script defer src="./assets/portfolio-etf.js?v=disclosures-2"></script>
   <script defer src="./assets/performance-model.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio-performance.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio-analysis.js?v=broker-history-1"></script>
-  <script defer src="./assets/portfolio-journal.js?v=broker-history-1"></script>
-  <script defer src="./assets/portfolio.js?v=import-3"></script>
+  <script defer src="./assets/portfolio-performance.js?v=statement-performance-1"></script>
+  <script defer src="./assets/portfolio-analysis.js?v=statement-performance-1"></script>
+  <script defer src="./assets/portfolio-journal.js?v=statement-performance-1"></script>
+  <script defer src="./assets/portfolio.js?v=reconciled-nav-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -78,8 +78,13 @@
       <p><a class="text-button" href="./portfolio.html">前往组合分析</a></p>
     </section>
     <div id="portfolio-results" class="work-stack" hidden>
+      <section id="broker-history" class="panel work-panel" aria-labelledby="broker-history-title" hidden>
+        <div class="section-line"><h2 id="broker-history-title">券商结单净增长</h2><span>USD</span></div>
+        <div class="work-table-wrap"><table class="work-table" id="broker-history-table"></table></div>
+        <div id="broker-valuation-checks"></div>
+      </section>
       <section class="panel work-panel" aria-labelledby="risk-overview-title">
-        <div class="section-line"><h2 id="risk-overview-title">核心风险指标</h2><span id="risk-overview-period"></span></div>
+        <div class="section-line"><h2 id="risk-overview-title">核心风险指标 · 历史估算</h2><span id="risk-overview-period"></span></div>
         <dl id="risk-overview" class="risk-metrics risk-overview"></dl>
         <div class="page-tools risk-controls">
           <label for="drawdown-limit">回撤上限 %</label>
@@ -90,7 +95,7 @@
       </section>
         <section class="performance-block panel work-panel" aria-labelledby="performance-title">
           <div class="section-line performance-heading">
-            <h2 id="performance-title">组合历史表现</h2>
+            <h2 id="performance-title">历史行情模拟与绩效估算</h2>
             <div class="page-tools">
               <label for="performance-account">账户</label><select id="performance-account"><option value="all">全部账户</option></select>
               <label for="performance-benchmark">比较基准</label><select id="performance-benchmark"></select>

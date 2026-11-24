@@ -95,7 +95,16 @@ function normalizeBrokerHistory(raw) {
   if (new Set(archivedEntries.map(row=>row.id)).size!==archivedEntries.length || archivedEntries.some(row=>row.kind==="equity")) {
     throw new Error("历史流水含有重复编号或全组合净值。");
   }
-  return {periods,archivedEntries};
+  const checks = raw.valuationChecks ?? [];
+  if (!Array.isArray(checks) || checks.length>100) throw new Error("估值核对记录格式有误。");
+  const valuationChecks = checks.map(row=>{
+    const {date,marketValue,reconciledValue,note} = row ?? {};
+    if (!validNavDate(date) || date>journalToday() || ![marketValue,reconciledValue].every(Number.isFinite)) {
+      throw new Error("请检查估值核对记录的日期和金额。");
+    }
+    return {date,marketValue,reconciledValue,note:cleanText(note,240)};
+  });
+  return {periods,archivedEntries,...(valuationChecks.length ? {valuationChecks} : {})};
 }
 
 function readPrivateJournal(id=portfolio.journalId) {
@@ -194,7 +203,11 @@ function renderPortfolioJournal() {
   by("journal-growth-label").textContent = stats.state==="estimated" ? "暂估投资净增长" : "投资净增长";
   by("journal-growth").className = tone(stats.growth);
   by("journal-growth-period").textContent = period;
-  if (!by("journal-table") || !section.open) return;
+  if (!by("journal-table")) {
+    renderBrokerHistory(book.brokerHistory,true);
+    return;
+  }
+  if (!section.open) return;
   renderBrokerHistory(book.brokerHistory);
   const archived = book.brokerHistory?.archivedEntries ?? [];
   by("journal-details").hidden = !book.entries.length && !archived.length;
@@ -212,14 +225,23 @@ function renderPortfolioJournal() {
   renderJournalReconciliation(book);
 }
 
-function renderBrokerHistory(history) {
-  by("broker-history").hidden = !history?.periods.length;
-  if (!history?.periods.length) return;
-  table("broker-history-table",["账户／区间","期初净值","净入金","期末净值","投资净增长","依据"],history.periods.map(row=>{
+function renderBrokerHistory(history,summariesOnly=false) {
+  const rows = (history?.periods ?? []).filter(row=>!summariesOnly || row.summary);
+  by("broker-history").hidden = !rows.length;
+  if (!rows.length) return;
+  table("broker-history-table",["账户／区间","期初净值","净入金","期末净值","投资净增长","依据"],rows.map(row=>{
     const growth = Math.round((row.closing-row.opening-row.netDeposits)*100)/100;
     const label = row.summary ? "<strong>"+esc(row.scope)+"</strong>" : esc(row.scope);
     return [td(label+"<small>"+esc(row.from+" – "+row.to)+"</small>"),td(fmt(row.opening)),td(plus(row.netDeposits)),
       td(fmt(row.closing)),td(plus(growth),tone(growth)),td(esc((row.estimated?"暂估 · ":"")+row.source))];
+  }));
+  by("broker-valuation-checks").replaceChildren(...(history.valuationChecks ?? []).map(row=>{
+    const note = document.createElement("p");
+    const delta = Math.round((row.marketValue-row.reconciledValue)*100)/100;
+    note.className = "work-note";
+    note.textContent = row.date+" 估值对账 · 逐项行情 "+fmt(row.marketValue)+" · 结单与估值合计 "+fmt(row.reconciledValue)
+      +" · 差额 "+plus(delta)+" USD。"+row.note;
+    return note;
   }));
 }
 

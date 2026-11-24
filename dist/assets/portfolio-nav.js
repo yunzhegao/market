@@ -70,6 +70,7 @@ function normalizeNavHistory(raw) {
       && typeof item.symbol === "string" && symbolValid(item.symbol) && fnum(item.quantity) && item.quantity > 0;
     if (!row.holdings.every(valid)) return null;
     const snapshot = {id:row.id,holdings:navHoldings(row.holdings)};
+    if (row.source==="reconciled") snapshot.source = row.source;
     if (Array.isArray(row.accounts) && row.accounts.length<=400 && row.accounts.every(item=>valid(item)
       && typeof item.account==="string" && item.account.length>0 && item.account.length<=90)) {
       snapshot.accounts = navHoldings(row.accounts,true);
@@ -99,7 +100,7 @@ function recordNavHoldings(state, previous = state.navHistory, now = Date.now())
   let snapshots = schedule.filter(row=>row.date>=oldest || row===anchor);
   const applicable = snapshots.findLast(row=>row.date<=date);
   const sameHoldings = JSON.stringify(applicable?.holdings) === JSON.stringify(holdings);
-  if (!sameHoldings || JSON.stringify(applicable?.accounts) !== JSON.stringify(accounts)) {
+  if (!sameHoldings || applicable?.source==="reconciled" || JSON.stringify(applicable?.accounts) !== JSON.stringify(accounts)) {
     const snapshot = sameHoldings ? {id:applicable.id,holdings} : navSnapshot(holdings);
     snapshots = [...snapshots.filter(row=>row.date<date),{...snapshot,accounts,date},...snapshots.filter(row=>row.date>date)];
   }
@@ -181,7 +182,8 @@ function navPoint(date, holdings, base, prices, missing = new Set()) {
 function navDay(history, date) {
   const saved = history?.snapshots.findLast(row=>row.date<=date);
   const snapshot = saved ?? history?.reference;
-  return snapshot ? {date,holdings:snapshot.holdings,basis:snapshot.id,estimated:!saved} : null;
+  return snapshot ? {date,holdings:snapshot.holdings,basis:snapshot.id,estimated:!saved,
+    ...(saved?.source==="reconciled" ? {reconciled:true} : {})} : null;
 }
 
 function navDays(history, now, range = navView.range) {
@@ -193,9 +195,9 @@ function navDays(history, now, range = navView.range) {
 
 function navSavedPoints(base, days) {
   const cached = new Map((localRead(navPointsKey,{})[base] ?? []).map(row=>[row.date,row]));
-  return days.flatMap(({date,basis,estimated})=>{
+  return days.flatMap(({date,basis,estimated,reconciled})=>{
     const point = cached.get(date);
-    return point?.basis === basis && fnum(point.value) ? [{...point,estimated}] : [];
+    return point?.basis === basis && fnum(point.value) ? [{...point,estimated,...(reconciled ? {reconciled:true} : {})}] : [];
   });
 }
 
@@ -340,7 +342,7 @@ function navPlotRows(rows, mode, prior) {
     const estimated = group.some(row=>row.estimated);
     const mixed = estimated && group.some(row=>!row.estimated);
     return [monday+navWeekMs/2,last.value,values[0],Math.max(...values),Math.min(...values),
-      {date:last.date,first:group[0].date,estimated,mixed}];
+      {date:last.date,first:group[0].date,estimated,mixed,reconciled:group.some(row=>row.reconciled)}];
   });
 }
 
@@ -385,7 +387,7 @@ function drawNavPlot(rows, from, to, base) {
     pointLabel:row=>{
       const info = row[5];
       const period = weekly && info.first!==info.date ? info.first+" – "+info.date : info.date;
-      return period+(info.mixed?" · 部分回算":info.estimated?" · 回算":"");
+      return period+(info.mixed?" · 部分回算":info.estimated?" · 回算":info.reconciled?" · 按账重建":"");
     },
     comparison:(row,previous)=>candle ? row[2] : previous && !navPointBreak(previous,row) ? previous[1] : null,
     formatDelta:navDelta,
@@ -439,7 +441,7 @@ function renderNavHistory(base, isDemo) {
   const {mode} = navView;
   const method = mode==="day" ? "日 K 的开收分别取前一日和当日 06:00 净值，高低取这两个值的范围。浅色标记回算。"
     : mode==="week" ? "周 K 按自然周等宽排列，取该周已有估值的首值、最高值、最低值和末值。浅色标记含回算的周。"
-    : "虚线标记回算。缺少行情或汇率的日期留空。";
+    : "实线按录入或对账重建的持仓估值。虚线按参考持仓回算。缺少行情或汇率的日期留空。";
   by("nav-history-method").textContent = method+" 本图衡量市值变化，含出入金，价格取估值时点前的可用报价。历史表现和风险分析使用复权收盘收益，按持仓快照衔接，并各自采用所选区间。";
   if (!last) {
     navView.plot = null;
@@ -456,7 +458,7 @@ function renderNavHistory(base, isDemo) {
   const change = period.length>1 ? " · "+(recorded.length ? "记录市值变化" : "回算市值变化")+" "
     +'<span class="'+tone(closing-opening)+'">'+esc(navDelta(closing,opening))+'</span>'
     +" · 市值最大回撤 "+esc(pctText(drawdown*100))+"（"+esc(period[0].date+" – "+period.at(-1).date)+"）" : "";
-  by("nav-history-summary").innerHTML = esc(fmt(last.value)+" "+base+(last.estimated?" · 回算":""))+change;
+  by("nav-history-summary").innerHTML = esc(fmt(last.value)+" "+base+(last.estimated?" · 回算":last.reconciled?" · 按账重建":""))+change;
   drawNavPlot(rows,from,to,base);
   const dateLabel = from===to ? to : from+" – "+to;
   const coverage = navView.range==="year" || rows.length<days.length ? " · "+rows.length+" / "+days.length+" 天" : "";
@@ -466,6 +468,6 @@ function renderNavHistory(base, isDemo) {
   by("nav-history-unit").textContent = "每日 06:00 新加坡时间 · "+unit;
   table("nav-history-table",["估值日","净值 · "+base,"估值依据"],rows.slice().reverse().map(row=>{
     const sources = (row.sources ?? []).filter(source=>Object.hasOwn(navPriceSources,source)).map(source=>navPriceSources[source]);
-    return [td(esc(row.date)),td(fmt(row.value)),td((row.estimated?"回算":"持仓记录")+(sources.length?" · 含"+sources.join("、"):""))];
+    return [td(esc(row.date)),td(fmt(row.value)),td((row.estimated?"回算":row.reconciled?"按账重建":"持仓记录")+(sources.length?" · 含"+sources.join("、"):""))];
   }));
 }

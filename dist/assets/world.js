@@ -182,10 +182,12 @@ let hideMarketTimer;
 let pointerPosition;
 let dismissedAt;
 
-const globeProjection = {centerX:500,equatorY:218,longitudeScale:2.66,latitudeScale:2.39};
+const globeProjection = {centerX:500,centerLongitude:worldLandGrid.centerLongitude ?? 0,equatorY:218,longitudeScale:2.66,latitudeScale:2.39};
 function globePoint(lon,lat) {
-  const {centerX,equatorY,longitudeScale,latitudeScale}=globeProjection;
-  return [centerX+lon*longitudeScale,equatorY-lat*latitudeScale];
+  const {centerX,centerLongitude,equatorY,longitudeScale,latitudeScale}=globeProjection;
+  const offset=lon-centerLongitude;
+  const longitude=Math.abs(offset)<=180 ? offset : ((offset+180)%360+360)%360-180;
+  return [centerX+longitude*longitudeScale,equatorY-lat*latitudeScale];
 }
 
 const {step:landDotStep,radius:landDotRadius}=worldLandGrid;
@@ -196,7 +198,7 @@ const landDotRows = worldLandGrid.rows.map((columns,row)=>columns.map(column=>{
   const y=Number(((row+.5)*landDotStep).toFixed(2));
   const latitude=(globeProjection.equatorY-y)/globeProjection.latitudeScale*degreesToRadians;
   return {x,y,sinLatitude:Math.sin(latitude),cosLatitude:Math.cos(latitude),
-    longitude:(x-globeProjection.centerX)/globeProjection.longitudeScale*degreesToRadians,
+    longitude:(globeProjection.centerLongitude+(x-globeProjection.centerX)/globeProjection.longitudeScale)*degreesToRadians,
     path:"M"+(x-landDotRadius).toFixed(2)+","+y.toFixed(2)+landDotArcs};
 }));
 const landDots = landDotRows.flat();
@@ -461,7 +463,7 @@ function renderGlobeLighting(now) {
   }
   by("globe-day").setAttribute("d",day.join(""));
   by("globe-night").setAttribute("d",night.join(""));
-  by("globe-terminator").setAttribute("d",globeTerminatorPath(solar,globePoint));
+  by("globe-terminator").setAttribute("d",globeTerminatorPath(solar,globePoint,globeProjection.centerLongitude));
 }
 
 function renderGlobe(holdings) {

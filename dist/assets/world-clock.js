@@ -17,13 +17,14 @@ function globeSolarPosition(now) {
   return {declination,longitude};
 }
 
-function globeTerminatorPath({declination,longitude}, project) {
+function globeTerminatorPath({declination,longitude}, project, centerLongitude=0) {
   const slope = Math.tan(declination) || 1e-9;
-  const longitudes = new Set(Array.from({length:181},(_,i)=>i*2-180));
+  const west = centerLongitude-180;
+  const longitudes = new Set(Array.from({length:181},(_,i)=>west+i*2));
   // Add points near the equatorial crossings so the steep equinox curves stay smooth.
   for (const crossing of [longitude-90,longitude+90]) {
     for (const offset of [-1,-.2,-.04,-.008,0,.008,.04,.2,1]) {
-      longitudes.add(((crossing+offset+180)%360+360)%360-180);
+      longitudes.add(west+((crossing+offset-west)%360+360)%360);
     }
   }
   const points = [...longitudes].sort((a,b)=>a-b).map(lon=>{

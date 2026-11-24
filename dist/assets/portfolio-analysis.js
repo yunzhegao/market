@@ -76,7 +76,7 @@ function renderRiskOverview(data) {
   const last = result.rows.at(-1), budget = drawdownBudget(drawdown?.current,analysisDrawdownLimit());
   const excess = bench && last ? last.value-bench.at(-1).value : null;
   const metrics = [
-    ["区间累计收益",last?performanceSigned(last.value-1):"—"],
+    ["估算区间收益",last?performanceSigned(last.value-1):"—"],
     ["基准超额收益",performancePp(excess)],
     ["最大回撤",performancePercent(drawdown?.decline)],
     ["当前回撤",performancePercent(drawdown?.current)],
@@ -263,7 +263,8 @@ function exportAnalysis(mode) {
     units:{money:base,return:"小数（0.01 等于 1%）",concentration:"百分数（1 等于 1%）"},
     holdings:before?.values ?? [],
     journalStatus:{coverage:journal.coverage,entries:journal.entries.length,pending:journal.entries.filter(row=>row.pending).length,
-      ...(full && journal.brokerHistory ? {brokerHistory:{currency:"USD",periods:journal.brokerHistory.periods}} : {})},
+      ...(full && journal.brokerHistory ? {brokerHistory:{currency:"USD",periods:journal.brokerHistory.periods,
+        ...(journal.brokerHistory.valuationChecks ? {valuationChecks:journal.brokerHistory.valuationChecks} : {})}} : {})},
     nav:exportNav(navView.range),performance,
     risk:{range:riskView.range,requested:risk.requested,recordedOnly:risk.recordedOnly,annualRiskFreeRate:rate,
       minimumSamples:performanceMinimum,points:exportReturnRows(risk.result.rows,full),benchmarkPoints:exportReturnRows(risk.bench),
@@ -274,7 +275,7 @@ function exportAnalysis(mode) {
       rolling:Object.fromEntries(rollingMetrics.map(key=>[key,performanceRolling(risk.result.rows,risk.bench,key)]))},
     ...(full?{history:{windows:historical,loading:performanceLoading||navBusy,missingSymbols:[...relevantSymbols].filter(symbol=>!performancePrices.has(symbol)),
       start:span.from,end:span.to,reference:portfolio.navHistory?.reference??null,snapshots:portfolio.navHistory?.snapshots??[],
-      dailyHoldings:allNavDates.map(({date,holdings,estimated,basis})=>({date,holdings,estimated,basis})),
+      dailyHoldings:allNavDates,
       currentPositions:portfolio.positions,simulatedPositions:after?.values??null,
       effectiveEtfWeights:effectiveEtfWeights(portfolio.weights,demo?{}:etfDisclosures),
       prices:Object.fromEntries([...performancePrices].filter(([symbol])=>relevantSymbols.has(symbol)).map(([symbol,quote])=>{

@@ -154,7 +154,7 @@ function showPerformancePoint() {
   const index = Math.min(selected ?? rows.length-1,rows.length-1);
   const point = rows[index];
   if (!point || !plot) return;
-  const readings = [{label:"组合",color:"var(--chart-line)",value:point.value-1}];
+  const readings = [{label:"组合估算",color:"var(--chart-line)",value:point.value-1}];
   for (const [key,series] of Object.entries(comparisons)) {
     if ((mode==="excess" ? key===performanceReference() : visible.has(key)) && series) {
       readings.push({...performanceBenchmarks[key],value:series[index].value-1});
@@ -222,7 +222,7 @@ function renderPerformanceLegend() {
   const item = (key,label,color)=>'<label class="quote-switch performance-benchmark"><input type="checkbox" value="'+esc(key)+'"'
     +(performanceView.visible.has(key)?" checked":"")+(!performanceView.comparisons[key]?" disabled":"")
     +'><i style="--series-color:'+color+'"></i>'+esc(label)+'</label>';
-  by("performance-legend").innerHTML = '<span class="performance-benchmark"><i style="--series-color:var(--chart-line)"></i>组合</span>'
+  by("performance-legend").innerHTML = '<span class="performance-benchmark"><i style="--series-color:var(--chart-line)"></i>组合估算</span>'
     +Object.entries(performanceBenchmarks).map(([key,{label,color}])=>item(key,label,color)).join("");
 }
 

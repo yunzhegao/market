@@ -15,13 +15,13 @@
   <script defer src="./assets/workspace.js?v=risk-1"></script>
   <script defer src="./assets/allocation.js?v=performance-1"></script>
   <script defer src="./assets/market-plot.js?v=performance-2"></script>
-  <script defer src="./assets/portfolio-nav.js?v=risk-1"></script>
+  <script defer src="./assets/portfolio-nav.js?v=reconciled-nav-1"></script>
   <script defer src="./assets/portfolio-etf.js?v=disclosures-2"></script>
   <script defer src="./assets/performance-model.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio-performance.js?v=risk-1"></script>
-  <script defer src="./assets/portfolio-analysis.js?v=broker-history-1"></script>
-  <script defer src="./assets/portfolio-journal.js?v=broker-history-1"></script>
-  <script defer src="./assets/portfolio.js?v=exposure-sort-1"></script>
+  <script defer src="./assets/portfolio-performance.js?v=statement-performance-1"></script>
+  <script defer src="./assets/portfolio-analysis.js?v=statement-performance-1"></script>
+  <script defer src="./assets/portfolio-journal.js?v=statement-performance-1"></script>
+  <script defer src="./assets/portfolio.js?v=reconciled-nav-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -79,8 +79,9 @@
       </div>
       <details class="work-method" id="broker-history" hidden>
         <summary>券商历史与净入金 · USD</summary>
-        <p class="work-note">净增长等于期末减期初再减净入金。Firstrade 按结单单列，跨券商资金未确认配对。</p>
+        <p class="work-note">净增长等于期末净值减期初净值和净入金。Firstrade 单列，跨券商资金未确认配对。</p>
         <div class="work-table-wrap"><table class="work-table" id="broker-history-table"></table></div>
+        <div id="broker-valuation-checks"></div>
       </details>
       <details class="work-method" id="journal-reconciliation" hidden>
         <summary id="journal-reconciliation-summary">持仓对账</summary>
@@ -166,21 +167,6 @@
             <div class="work-table-wrap"><table class="work-table" id="holdings-table"></table></div>
             <div id="account-total" class="account-totals"></div>
           </section>
-          <section class="panel work-panel" aria-labelledby="exposure-title">
-            <div class="section-line"><div class="exposure-heading"><h2 id="exposure-title">穿透与重叠敞口</h2><span id="lookthrough-coverage" class="coverage-label"></span></div><button type="button" id="edit-exposure" class="text-button">编辑 ETF 成分权重</button></div>
-            <div class="work-table-wrap"><table class="work-table" id="lookthrough-table"></table></div>
-            <p class="work-note" id="lookthrough-note"></p>
-            <details class="work-method" open>
-              <summary>行业穿透</summary>
-              <div class="work-table-wrap"><table class="work-table" id="sector-exposure-table"></table></div>
-              <p class="work-note" id="sector-exposure-sources"></p>
-            </details>
-            <details class="work-method" id="etf-disclosure" hidden>
-              <summary>ETF 持仓披露与变化</summary>
-              <div class="work-table-wrap"><table class="work-table" id="etf-disclosure-table"></table></div>
-              <p class="work-note">对比同一 ETF 最近两期披露。权重变化也受价格影响。</p>
-            </details>
-          </section>
         </div>
         <div class="work-stack">
           <section class="panel work-panel" aria-labelledby="returns-title">
@@ -207,6 +193,21 @@
               <div class="work-table-wrap"><table class="work-table" id="simulation-exposure"></table></div>
             </details>
             <p class="work-note">现金包含账面现金和现金替代。模拟买入按指定账户与币种核对可用账面现金，卖出现金替代后才计入可用金额。费用以成交币种计。</p>
+          </section>
+          <section class="panel work-panel" aria-labelledby="exposure-title">
+            <div class="section-line"><div class="exposure-heading"><h2 id="exposure-title">穿透与重叠敞口</h2><span id="lookthrough-coverage" class="coverage-label"></span></div><button type="button" id="edit-exposure" class="text-button">编辑 ETF 成分权重</button></div>
+            <div class="work-table-wrap"><table class="work-table" id="lookthrough-table"></table></div>
+            <p class="work-note" id="lookthrough-note"></p>
+            <details class="work-method" open>
+              <summary>行业穿透</summary>
+              <div class="work-table-wrap"><table class="work-table" id="sector-exposure-table"></table></div>
+              <p class="work-note" id="sector-exposure-sources"></p>
+            </details>
+            <details class="work-method" id="etf-disclosure" hidden>
+              <summary>ETF 持仓披露与变化</summary>
+              <div class="work-table-wrap"><table class="work-table" id="etf-disclosure-table"></table></div>
+              <p class="work-note">对比同一 ETF 最近两期披露。权重变化也受价格影响。</p>
+            </details>
           </section>
         </div>
       </div>
