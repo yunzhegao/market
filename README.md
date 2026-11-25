@@ -57,6 +57,8 @@ npm run dev
 
 ## 发布到 GitHub Pages
 
+「加密市场」通过 `crypto.html` 访问。现货报价、市值和市占率来自 CoinPaprika，恐贪指数来自 Alternative.me。BTC 和 ETH 的 K 线优先使用 Kraken，缺项时使用 Coinbase，均标注出处和 UTC 时间。加密相关证券沿用网站的 Yahoo Finance 行情接口。页面公开行情可直接请求数据方，也可经 Worker 的 `crypto-overview` 和 `crypto-chart` 获取。发布流程运行 `node scripts/update_crypto_data.mjs` 更新随站快照。观察列表保存在当前浏览器。
+
 把源码放在 GitHub 仓库的 `main` 分支，并在 **Settings → Pages → Source** 选择 **GitHub Actions**。项目页面也可以放在普通的仓库子路径里。
 
 GitHub Pages 是静态托管。如果看到「GitHub Pages 尚未配置行情接口」，先访问当前页面的 `assets/live-config.js` 确认 `apiBase`。空值会显示快照，配置成功后页面才会请求 Worker。直接把网页上传到现有站点的 `market/` 子目录时，应改该子目录里的 `assets/live-config.js`。只有运行随包的发布工作流时，仓库变量才会写入页面配置。

@@ -1,4 +1,20 @@
 import "../dist/assets/adr-reference.js";
+import "../dist/assets/crypto-feed.js";
+
+const cryptoFeed = globalThis.MARKET_CRYPTO_FEED;
+const cryptoRequests = new Map();
+
+async function cachedCrypto(key, load) {
+  const saved = cryptoRequests.get(key);
+  if (saved && saved.until>Date.now()) return saved.data;
+  const next = {until:Date.now()+120000,data:load()};
+  cryptoRequests.set(key,next);
+  try {return await next.data;}
+  catch(error) {
+    if (cryptoRequests.get(key)===next) cryptoRequests.delete(key);
+    throw error;
+  }
+}
 
 const stocks = new Set(["SPYM", "SPY", "RSP", "IWM", "QQQ", "HYG", "JNK", "KRE"]);
 const market = {
@@ -881,6 +897,28 @@ export default {
     const headers = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store", "Content-Type": "application/json"};
     if (request.method !== "GET") return Response.json({error: "method"}, {status: 405, headers});
     const scope = url.searchParams.get("scope");
+    if (scope === "crypto-overview") {
+      try {
+        const data = await cachedCrypto(scope,async()=>{
+          const data = await cryptoFeed.overview();
+          if (!Object.keys(data.quotes).length && !data.global && !data.fear.length) throw new Error("No crypto data");
+          return data;
+        });
+        return Response.json(data,{headers});
+      } catch {
+        return Response.json({error:"crypto-overview"},{status:503,headers});
+      }
+    }
+    if (scope === "crypto-chart") {
+      const asset = url.searchParams.get("asset"), interval = Number(url.searchParams.get("interval"));
+      if (!cryptoFeed.validChart(asset,interval)) return Response.json({error:"crypto-chart"},{status:400,headers});
+      try {
+        const data = await cachedCrypto(asset+"/"+interval,()=>cryptoFeed.chart(asset,interval));
+        return Response.json(data,{headers});
+      } catch {
+        return Response.json({error:"crypto-chart"},{status:503,headers});
+      }
+    }
     if (scope === "world") {
       const symbols = [...new Set((url.searchParams.get("symbols") || "").split(","))];
       if (symbols.length > 8 || !symbols.every(symbol => worldSymbol.test(symbol))) {

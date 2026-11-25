@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN" data-page="crypto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="比特币和以太坊走势、加密市场情绪、主要加密资产与相关证券行情。">
+  <meta name="theme-color" content="#ffffff" id="theme-color">
+  <title>加密市场 · 市场观察</title>
+  <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./assets/styles.css">
+  <link rel="stylesheet" href="./assets/workspace.css">
+  <link rel="stylesheet" href="./assets/crypto.css">
+  <script defer src="./assets/live-config.js"></script>
+  <script defer src="./assets/workspace.js?v=risk-1"></script>
+  <script defer src="./assets/market-plot.js"></script>
+  <script defer src="./assets/crypto-feed.js"></script>
+  <script defer src="./assets/crypto-snapshot.js"></script>
+  <script defer src="./assets/crypto.js"></script>
+  <script src="/assets/site-visits.js?v=4" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到内容</a>
+  <header class="site-header">
+    <div class="header-inner shell">
+      <div class="header-start">
+        <span class="site-name">市场观察</span>
+        <nav class="site-nav" aria-label="网站导航">
+          <a href="./framework.html">观察框架</a>
+          <a href="./world.html">环球市场</a>
+          <a href="./crypto.html" aria-current="page">加密市场</a>
+          <a href="./portfolio.html">组合分析</a>
+          <a href="./risk.html">绩效风控</a>
+        </nav>
+      </div>
+      <div class="header-tools">
+        <a class="site-home" href="https://yunzhegao.github.io/cn.html">个人主页</a>
+        <time id="sync-time" hidden></time>
+        <button class="icon-button" id="refresh" type="button" aria-label="刷新数据" title="刷新数据">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.2 5.9M20 5v6h-6"/></svg>
+        </button>
+        <button class="icon-button" id="theme" type="button" aria-label="夜间模式" aria-pressed="false" title="切换日夜模式">
+          <svg class="moon" aria-hidden="true" viewBox="0 0 24 24"><path d="M21 14a9 9 0 0 1-11-11 9.1 9.1 0 1 0 11 11Z"/></svg>
+          <svg class="sun" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <main class="shell work-page crypto-page" id="main" aria-labelledby="page-title">
+    <div class="page-line"><h1 id="page-title">加密市场</h1></div>
+    <p class="work-status" id="crypto-status" role="status"></p>
+    <div class="crypto-overview">
+      <section class="panel crypto-quote" aria-labelledby="crypto-price-title">
+        <div class="quote-info">
+          <div class="section-line">
+            <h2 id="crypto-price-title">BTC / USD</h2>
+            <div class="segments" role="group" aria-label="核心资产">
+              <button type="button" data-crypto-asset="BTC" aria-pressed="true">BTC</button>
+              <button type="button" data-crypto-asset="ETH" aria-pressed="false">ETH</button>
+            </div>
+          </div>
+          <div class="quote-value"><div class="quote-price" id="crypto-price">—</div><div class="quote-move" id="crypto-move"></div></div>
+          <p class="quote-date" id="crypto-price-meta"></p>
+          <dl class="quote-stats">
+            <div><dt>24 小时成交额</dt><dd id="crypto-volume">—</dd></div>
+            <div><dt>距历史高点</dt><dd id="crypto-ath">—</dd></div>
+            <div><dt>30 日均线</dt><dd id="crypto-average">—</dd></div>
+          </dl>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-top">
+            <div class="chart-readout" id="crypto-chart-readout" aria-live="polite"></div>
+            <div class="chart-controls">
+              <div class="segments" role="group" aria-label="图表区间">
+                <button type="button" data-crypto-range="1" aria-pressed="false">24 小时</button>
+                <button type="button" data-crypto-range="7" aria-pressed="false">7 日</button>
+                <button type="button" data-crypto-range="30" aria-pressed="true">30 日</button>
+                <button type="button" data-crypto-range="90" aria-pressed="false">90 日</button>
+                <button type="button" data-crypto-range="365" aria-pressed="false">1 年</button>
+              </div>
+              <div class="segments" role="group" aria-label="图表类型">
+                <button type="button" data-crypto-mode="line" aria-pressed="true">折线</button>
+                <button type="button" data-crypto-mode="candle" aria-pressed="false">K 线</button>
+              </div>
+            </div>
+          </div>
+          <div class="chart" id="crypto-chart" tabindex="0" role="group" aria-label="价格走势，使用左右方向键查看数据"></div>
+          <p class="chart-empty" id="crypto-chart-status" role="status"></p>
+          <div class="chart-bottom"><span id="crypto-chart-meta"></span><a class="text-button" id="crypto-chart-source" href="https://www.kraken.com/prices/bitcoin" target="_blank" rel="noopener noreferrer">行情来源</a></div>
+        </div>
+      </section>
+      <div class="crypto-signals">
+        <article class="panel signal-card">
+          <div class="card-header"><h2>加密恐惧与贪婪</h2><a class="crypto-source" href="https://alternative.me/crypto/fear-and-greed-index/" target="_blank" rel="noopener noreferrer">Alternative.me</a></div>
+          <div class="reading"><strong id="crypto-fear">—</strong><span class="chip" id="crypto-fear-band"></span></div>
+          <p class="metric-meta" id="crypto-fear-date"></p>
+          <div class="chart" id="crypto-fear-chart" tabindex="0" role="group" aria-label="最近 30 日恐惧与贪婪指数"></div>
+          <p class="crypto-fear-readout" id="crypto-fear-readout"></p>
+        </article>
+        <article class="panel signal-card">
+          <div class="card-header"><h2>比特币市值占比</h2><a class="crypto-source" href="https://coinpaprika.com/" target="_blank" rel="noopener noreferrer">CoinPaprika</a></div>
+          <div class="reading"><strong id="crypto-dominance">—</strong></div>
+          <p class="metric-meta" id="crypto-dominance-date"></p>
+          <dl class="crypto-metric-list">
+            <div><dt>ETH / BTC</dt><dd id="crypto-eth-btc">—</dd></div>
+            <div><dt>加密市场总市值</dt><dd id="crypto-market-cap">—</dd></div>
+            <div><dt>总市值 24 小时变化</dt><dd id="crypto-market-change">—</dd></div>
+          </dl>
+        </article>
+        <article class="panel signal-card">
+          <div class="card-header"><h2 id="crypto-vol-title">BTC 已实现波动率</h2><span class="ticker">USD</span></div>
+          <div class="reading"><strong id="crypto-volatility">—</strong><span class="metric-unit">年化</span></div>
+          <p class="metric-meta" id="crypto-vol-date"></p>
+          <p class="metric-meta">最近 30 个完整日收益率，按 365 日年化。</p>
+        </article>
+        <article class="panel signal-card">
+          <div class="card-header"><h2>主要稳定币</h2><span class="ticker">USD</span></div>
+          <div class="reading"><strong id="crypto-stable-cap">—</strong></div>
+          <p class="metric-meta" id="crypto-stable-meta">USDT、USDC、DAI 合计市值</p>
+          <dl class="crypto-metric-list" id="crypto-stable-pegs"></dl>
+        </article>
+      </div>
+    </div>
+    <div class="crypto-lists">
+      <section class="panel work-panel" aria-labelledby="crypto-watch-title">
+        <div class="section-line"><h2 id="crypto-watch-title">主要加密资产</h2><button class="text-button" type="button" id="crypto-watch-edit">编辑观察列表</button></div>
+        <div class="work-table-wrap">
+          <table class="work-table crypto-table">
+            <thead><tr><th scope="col">资产</th><th scope="col">价格 · USD</th><th scope="col">24 小时</th><th scope="col">7 日</th><th scope="col">30 日</th><th scope="col">市值</th><th scope="col">24 小时成交额</th><th scope="col">距历史高点</th></tr></thead>
+            <tbody id="crypto-watch-rows"></tbody>
+          </table>
+        </div>
+        <p class="work-note">来源 <a class="crypto-source" href="https://coinpaprika.com/" target="_blank" rel="noopener noreferrer">CoinPaprika</a> · 涨跌使用滚动区间</p>
+      </section>
+      <section class="panel work-panel" aria-labelledby="crypto-securities-title">
+        <div class="section-line"><h2 id="crypto-securities-title">加密相关证券</h2><span>USD · 较前收</span></div>
+        <div class="work-table-wrap">
+          <table class="work-table crypto-table">
+            <thead><tr><th scope="col">证券</th><th scope="col">价格</th><th scope="col">涨跌</th><th scope="col">报价 · 美东</th></tr></thead>
+            <tbody id="crypto-securities-rows"></tbody>
+          </table>
+        </div>
+        <p class="work-note" id="crypto-securities-status">来源 Yahoo Finance</p>
+      </section>
+    </div>
+  </main>
+  <dialog class="crypto-watch-dialog" id="crypto-watch-dialog" aria-labelledby="crypto-watch-dialog-title">
+    <div class="dialog-header"><h2 id="crypto-watch-dialog-title">编辑观察列表</h2><form method="dialog"><button class="close-button" aria-label="关闭">×</button></form></div>
+    <form class="dialog-body" id="crypto-watch-form">
+      <div class="crypto-watch-options" id="crypto-watch-options"></div>
+      <p class="work-error" id="crypto-watch-error" role="status"></p>
+      <div class="editor-actions"><button class="text-button" id="crypto-watch-defaults" type="button">恢复默认</button><button class="solid-button pill-button" type="submit">保存</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
