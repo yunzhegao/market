@@ -22,8 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Keep bundled ETF snapshots
-        run: cp dist/assets/etf-holdings.json "$RUNNER_TEMP/etf-holdings-seed.json"
+      - name: Keep bundled observations
+        run: |
+          cp dist/assets/etf-holdings.json "$RUNNER_TEMP/etf-holdings-seed.json"
+          cp dist/assets/crypto-snapshot.js "$RUNNER_TEMP/crypto-snapshot-seed.js"
       - name: Restore latest verified observations
         uses: actions/cache/restore@v4
         with:
@@ -40,7 +42,7 @@ jobs:
         run: python3 scripts/update_market_data.py
       - name: Update public crypto observations
         continue-on-error: true
-        run: node scripts/update_crypto_data.mjs
+        run: node scripts/update_crypto_data.mjs "$RUNNER_TEMP/crypto-snapshot-seed.js"
       - name: Update ETF holdings disclosures
         continue-on-error: true
         run: python3 -B scripts/update_etf_holdings.py --seed "$RUNNER_TEMP/etf-holdings-seed.json"
