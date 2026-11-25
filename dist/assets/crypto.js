@@ -3,8 +3,9 @@
 const marketFeed = globalThis.MARKET_CRYPTO_FEED;
 const cryptoCacheKey = "market-crypto-cache-v1";
 const cryptoWatchKey = "market-crypto-watch-v1";
-const cryptoDefaultWatch = marketFeed.coins.map(([symbol])=>symbol).filter(symbol=>!["DOT","LTC","DOGE"].includes(symbol));
-const watchableCoins = new Set(marketFeed.coins.map(([symbol])=>symbol));
+const quotedCoins = new Set(marketFeed.coins.map(([symbol])=>symbol));
+const watchableCoins = new Set([...quotedCoins].filter(symbol=>!cryptoStable.has(symbol)));
+const cryptoDefaultWatch = [...watchableCoins].filter(symbol=>!["DOT","LTC","DOGE"].includes(symbol));
 let cryptoWatch = localRead(cryptoWatchKey,cryptoDefaultWatch);
 cryptoWatch = Array.isArray(cryptoWatch) ? cryptoWatch.filter(symbol=>watchableCoins.has(symbol)) : cryptoDefaultWatch;
 if (!cryptoWatch.length) cryptoWatch = cryptoDefaultWatch;
@@ -30,7 +31,7 @@ const chartKey = (asset,interval) => asset+"/"+interval;
 function mergeCryptoData(data) {
   if (!data || typeof data!=="object") return;
   for (const [symbol,reading] of Object.entries(data.quotes ?? {})) {
-    if (watchableCoins.has(symbol) && reading?.price>0 && fnum(reading.time)
+    if (quotedCoins.has(symbol) && reading?.price>0 && fnum(reading.time)
       && !(cryptoState.quotes[symbol]?.time>reading.time)) cryptoState.quotes[symbol] = reading;
   }
   if (fnum(data.global?.time) && !(cryptoState.global?.time>data.global.time)) cryptoState.global = data.global;
@@ -73,7 +74,7 @@ const moveCell = value => '<td class="'+tone(value)+'">'+esc(pctText(value))+'</
 function drawCryptoTables() {
   const query = by("crypto-search").value.trim().toLowerCase();
   const matches = row=>!query || row.some(value=>value.toLowerCase().includes(query));
-  const coins = marketFeed.coins.filter(row=>(query || cryptoWatch.includes(row[0])) && matches(row));
+  const coins = marketFeed.coins.filter(row=>watchableCoins.has(row[0]) && (query || cryptoWatch.includes(row[0])) && matches(row));
   by("crypto-watch-rows").innerHTML = marketRows(coins,9,([symbol,id,name])=>{
     const row = cryptoState.quotes[symbol] ?? {};
     const label = ["BTC","ETH"].includes(symbol)
@@ -88,10 +89,16 @@ function drawCryptoTables() {
     const move = row.previous>0 && row.price>0 ? (row.price/row.previous-1)*100 : null;
     const flow = fundDailyFlow(symbol);
     const stamp = fnum(row.time) ? timeAt(row.time,"America/New_York") : "—";
+    const session = sessionNames[row.session] ?? (row.source==="public-snapshot" ? "行情快照" : "");
     return '<th scope="row"><a class="crypto-source" href="https://finance.yahoo.com/quote/'+symbol+'/" target="_blank" rel="noopener noreferrer">'+symbol
-      +'</a><small>'+esc(name)+'</small></th><td>'+assetPrice(row.price)+'</td>'+moveCell(move)+'<td>'+esc(stamp)+'</td><td class="'+tone(flow?.total)+'" title="'+esc(marketDate(flow?.time))+'">'+moneyMove(flow?.total)+'</td>';
+      +'</a><small>'+esc(name)+'</small></th><td>'+assetPrice(row.price)+'</td>'+moveCell(move)
+      +'<td title="'+esc(fnum(row.time)?quoteStamp(row,session || undefined):"")+'">'+esc(stamp)+(session?'<small>'+esc(session)+'</small>':"")
+      +'</td><td class="'+tone(flow?.total)+'" title="'+esc(marketDate(flow?.time))+'">'+moneyMove(flow?.total)+'</td>';
   });
-  if (!by("crypto-watch-rows").innerHTML) by("crypto-watch-rows").innerHTML = '<tr><td colspan="9">没有匹配的加密资产</td></tr>';
+  if (!by("crypto-watch-rows").innerHTML) {
+    const stableMatch = query && marketFeed.coins.some(row=>cryptoStable.has(row[0]) && matches(row));
+    by("crypto-watch-rows").innerHTML = '<tr><td colspan="9">'+(stableMatch?"稳定币报价见上方行情栏":"没有匹配的加密资产")+'</td></tr>';
+  }
   if (!by("crypto-securities-rows").innerHTML) by("crypto-securities-rows").innerHTML = '<tr><td colspan="5">没有匹配的证券</td></tr>';
   const fundFees = {IBIT:.25,FBTC:.25,BITB:.20,ETHA:.25,FETH:.25};
   by("crypto-fund-costs").innerHTML = '<thead><tr><th scope="col">基金</th><th scope="col">年费</th><th scope="col">资产规模</th><th scope="col">规模日期</th></tr></thead><tbody>'
@@ -127,17 +134,24 @@ function drawCryptoSignals() {
   by("crypto-price-title").textContent = asset+" / USD";
   by("crypto-price").textContent = coin ? "$"+assetPrice(coin.price) : "—";
   paintMove(by("crypto-move"),coin?.day);
-  by("crypto-price-meta").textContent = coin ? "CoinPaprika · "+dualTime(coin.time)+" · 24 小时涨跌" : "等待现货报价";
+  by("crypto-price-meta").textContent = coin ? dualTime(coin.time)+" · 24 小时涨跌" : "暂无现货报价";
+  by("crypto-price-meta").title = "CoinPaprika 现货报价 · 24 小时交易";
   by("crypto-volume").textContent = cryptoMoney(coin?.volume);
   paintMove(by("crypto-ath"),coin?.drawdown);
   by("crypto-average").textContent = stats ? "$"+assetPrice(stats.average) : "—";
-  by("crypto-vol-title").textContent = asset+" 已实现波动率";
-  by("crypto-volatility").textContent = stats ? fmt(stats.volatility,1)+"%" : "—";
-  by("crypto-vol-date").textContent = stats ? stats.source+" · 截至 "+briefTime(stats.time).split(" ")[0]+" UTC 日线" : "等待完整日线";
+  const vol = by("crypto-volatility");
+  vol.textContent = stats ? pctValue(stats.volatility,1) : "—";
+  vol.title = "最近 30 个完整日收益率，按 365 日年化"+(stats ? " · "+stats.source+" · "+marketDate(stats.time)+" UTC" : "");
+  const dvol = researchState.metrics["dvol"+asset];
+  const implied = by("crypto-dvol");
+  implied.textContent = pctValue(dvol?.rows.at(-1)?.[1],1);
+  implied.title = "Deribit "+asset+" DVOL · 30 日隐含波动率，年化"+(dvol ? " · "+marketDate(dvol.time)+" UTC" : "");
 
   const global = cryptoState.global, eth = cryptoState.quotes.ETH, btc = cryptoState.quotes.BTC;
   by("crypto-dominance").textContent = fnum(global?.dominance) ? fmt(global.dominance)+"%" : "—";
-  by("crypto-dominance-date").textContent = fnum(global?.time) ? dualTime(global.time) : "等待市值数据";
+  const dominanceDate = by("crypto-dominance-date");
+  dominanceDate.textContent = fnum(global?.time) ? timeAt(global.time)+" 北京" : "";
+  dominanceDate.title = fnum(global?.time) ? dualTime(global.time) : "";
   const ratio = by("crypto-eth-btc");
   if (eth && btc && Math.abs(eth.time-btc.time)<=5*60000) {
     ratio.textContent = fmt(eth.price/btc.price,5);
@@ -153,16 +167,6 @@ function drawCryptoSignals() {
   }
   by("crypto-market-cap").textContent = cryptoMoney(global?.cap);
   paintMove(by("crypto-market-change"),global?.change);
-
-  const stable = ["USDT","USDC","DAI"].map(symbol=>[symbol,cryptoState.quotes[symbol]]);
-  const known = stable.filter(([,row])=>row?.cap>0);
-  by("crypto-stable-cap").textContent = known.length ? cryptoMoney(known.reduce((sum,[,row])=>sum+row.cap,0)) : "—";
-  by("crypto-stable-meta").textContent = known.length ? "三种稳定币市值 · 覆盖 "+known.length+" / 3" : "USDT、USDC、DAI 市值";
-  by("crypto-stable-pegs").innerHTML = stable.map(([symbol,row])=>{
-    const deviation = row ? (row.price-1)*100 : null;
-    return '<div><dt>'+symbol+'</dt><dd title="较 1 美元">'+(row ? fmt(row.price,5) : "—")
-      +' <span class="'+tone(deviation)+'">'+(fnum(deviation) ? plus(deviation,3)+"%" : "—")+'</span></dd></div>';
-  }).join("");
 }
 
 const fearBands = {"Extreme Fear":"极度恐惧",Fear:"恐惧",Neutral:"中性",Greed:"贪婪","Extreme Greed":"极度贪婪"};
@@ -173,7 +177,7 @@ function drawCryptoFear() {
   const band = by("crypto-fear-band");
   band.textContent = fearBands[current?.band] ?? "";
   band.dataset.tone = current?.value<25 ? "alert" : current?.value>75 ? "calm" : "";
-  by("crypto-fear-date").textContent = current ? new Date(current.time).toISOString().slice(0,10)+" · 0–100" : "等待情绪指数";
+  by("crypto-fear-date").textContent = current ? "最近 30 日" : "暂无情绪指数";
   chart.hidden = !current;
   fearView.plot = drawMarketPlot(chart,cryptoState.fear.map(row=>[row.time,row.value]),{
     quietCursor:true,axisWidth:35,axisFormat:value=>fmt(value,0),axisLabel:row=>briefTime(row[0]).slice(0,5),
@@ -226,6 +230,7 @@ function drawCryptoPage() {
   drawCryptoFear();
   drawCryptoChart();
   renderResearchSignals();
+  renderStableTape();
   renderCryptoTape();
   renderCryptoChain();
   renderCryptoFilings();
@@ -234,7 +239,7 @@ function drawCryptoPage() {
   const recent = Object.values(cryptoState.quotes).some(row=>Math.abs(Date.now()-row.time)<20*60000);
   const usable = count || cryptoState.fear.length || Object.keys(cryptoState.charts).length;
   by("crypto-status").textContent = cryptoUpdating && !usable ? "正在获取公开行情…"
-    : count ? (recent?"现货 24 小时交易":"显示最近可用的行情快照")+" · "+count+" 个资产报价"
+    : count ? (recent?"现货 24 小时交易":"现货 24 小时交易 · 显示最近可用快照")+" · "+count+" 个资产报价"
       : usable ? "部分数据已载入 · 现货报价待更新" : cryptoAttempted ? "暂未取得公开数据，可点击刷新重试。" : "等待公开行情";
 }
 
@@ -361,7 +366,7 @@ by("crypto-watch-rows").addEventListener("click",event=>{
 
 const watchDialog = by("crypto-watch-dialog");
 function drawWatchOptions(selected) {
-  by("crypto-watch-options").innerHTML = marketFeed.coins.map(([symbol,,name])=>
+  by("crypto-watch-options").innerHTML = marketFeed.coins.filter(([symbol])=>watchableCoins.has(symbol)).map(([symbol,,name])=>
     '<label><input type="checkbox" name="crypto-watch" value="'+symbol+'"'+(selected.includes(symbol)?" checked":"")
     +'><span>'+symbol+' · '+esc(name)+'</span></label>').join("");
   by("crypto-watch-error").textContent = "";
@@ -400,6 +405,7 @@ autoCrypto.addEventListener("change",()=>{
 });
 by("crypto-search").addEventListener("input",drawCryptoTables);
 by("crypto-company-disclosure").addEventListener("toggle",event=>{if(event.currentTarget.open) refreshCryptoFilings();});
+by("crypto-cross").addEventListener("toggle",renderCryptoCross);
 by("crypto-cross-series").addEventListener("change",()=>{crossView.selected=null;renderCryptoCross();});
 for (const field of ["days","frequency"]) for (const button of document.querySelectorAll("[data-cross-"+field+"]")) {
   button.addEventListener("click",()=>{

@@ -7,7 +7,7 @@ const crossKeys = Object.keys(researchFeed.symbols);
 const tapeSymbols = {"^GSPC":"标普 500","^NDX":"纳斯达克 100","DX-Y.NYB":"美元指数","GC=F":"黄金期货"};
 const researchState = {metrics:{},cross:null,breadth:null,tape:{...globalThis.WORLD_SNAPSHOT?.quotes},
   yield:dailyObservation(globalThis.WORLD_SNAPSHOT?.yields?.DGS10),dominance:[],watchTrends:{},filings:{rows:{}}};
-const cryptoMetric = (label,value) => "<div><dt>"+esc(label)+"</dt><dd>"+esc(value)+"</dd></div>";
+const cryptoMetric = (label,value,move) => '<div><dt>'+esc(label)+'</dt><dd class="'+tone(move)+'">'+esc(value)+'</dd></div>';
 const marketDate = time => fnum(time) ? researchFeed.iso(time) : "—";
 const pctValue = (value,digits=2) => fnum(value)?fmt(value,digits)+"%":"—";
 const pctMove = (value,digits=2) => fnum(value)?plus(value,digits)+"%":"—";
@@ -32,7 +32,8 @@ function mergeCryptoResearch(data) {
     if (Object.hasOwn(tapeSymbols,symbol) && row?.price>0 && !(researchState.tape[symbol]?.time>row.time)) researchState.tape[symbol] = row;
   }
   if (data.yield && !(researchState.yield?.date>data.yield.date)) researchState.yield = data.yield;
-  const history = new Map([...researchState.dominance,...(data.dominance ?? [])].filter(([date,value])=>date && fnum(value)));
+  const history = new Map([...researchState.dominance,...(data.dominance ?? [])]
+    .filter(([date,value])=>/^\d{4}-\d{2}-\d{2}$/.test(date) && fnum(Date.parse(date)) && fnum(value) && value>0 && value<=100));
   researchState.dominance = [...history].sort(([a],[b])=>a.localeCompare(b)).slice(-35);
   if (data.filings?.rows && !(researchState.filings.time>data.filings.time)) researchState.filings = {
     time:data.filings.time,rows:{...researchState.filings.rows,...data.filings.rows}
@@ -72,43 +73,121 @@ function watchSpark(symbol) {
   return values?.length>=2 ? spark(values) : "—";
 }
 
+function shortStat(label,value,detail="",move) {
+  return '<div class="crypto-primary-stat"><span class="crypto-price-date">'+esc(label)+'</span>'
+    +'<div class="reading"><strong class="'+tone(move)+'">'+esc(value)+'</strong></div>'
+    +(detail?'<span class="crypto-price-date">'+esc(detail)+'</span>':"")+'</div>';
+}
+
+function dominanceWindow(rows) {
+  const last = Date.parse(rows.at(-1)?.[0]);
+  return rows.filter(([date,value])=>Date.parse(date)>last-30*researchFeed.day && fnum(value) && value>0 && value<=100);
+}
+
+function renderDominanceTrend({rows,source}) {
+  const target = by("crypto-dominance-trend");
+  target.hidden = rows.length<2;
+  if (target.hidden) {
+    target.innerHTML = "";
+    return;
+  }
+  const first = Date.parse(rows[0][0]), last = Date.parse(rows.at(-1)[0]);
+  const values = rows.map(([,value])=>value);
+  const min = Math.min(...values), span = Math.max(...values)-min;
+  const coordinates = rows.map(([date,value])=>{
+    const x = 1+(Date.parse(date)-first)*98/(last-first);
+    const y = span ? 19-(value-min)*16/span : 11;
+    return [x.toFixed(2),y.toFixed(2)];
+  });
+  const path = coordinates.map(([x,y],i)=>(i?"L":"M")+x+","+y).join("");
+  const detail = rows[0][0]+" – "+rows.at(-1)[0]+" · "+pctValue(values[0])+" → "+pctValue(values.at(-1))+" · "+source;
+  target.innerHTML = '<div class="crypto-dominance-spark" title="'+esc(detail)+'"><span>近 30 日 · '+rows.length+' 个日值</span>'
+    +'<svg viewBox="0 0 100 22" preserveAspectRatio="none" role="img" aria-label="'+esc(detail)+'"><path d="'+path+'"/></svg></div>';
+}
+
 function renderResearchSignals() {
   const {metrics,breadth,dominance} = researchState;
-  const dvol = metrics["dvol"+cryptoView.asset];
-  by("crypto-vol-extra").innerHTML = cryptoMetric("Deribit DVOL",dvol ? pctValue(dvol.rows.at(-1)[1],1)+" · "+marketDate(dvol.time) : "待更新");
-  const alt = marketFeed.coins.filter(([code])=>!cryptoStable.has(code)).map(([code])=>cryptoState.quotes[code])
+  const available = [...watchableCoins].map(code=>cryptoState.quotes[code])
     .filter(row=>fnum(row?.day) && row.time>=Date.now()-6*3600000);
-  const outperform = marketFeed.coins.filter(([code])=>!["BTC","ETH"].includes(code) && !cryptoStable.has(code))
-    .map(([code])=>cryptoState.quotes[code]).filter(row=>fnum(row?.day) && row.time>=Date.now()-6*3600000);
-  const btc = cryptoState.quotes.BTC;
-  by("crypto-breadth").innerHTML =
-    cryptoMetric("观察池上涨",alt.length ? alt.filter(row=>row.day>0).length+" / "+alt.length+" · "+pctValue(alt.filter(row=>row.day>0).length/alt.length*100,1) : "待更新")
-    +cryptoMetric("站上 50 日线",breadth ? breadth.above+" / "+breadth.count+" · "+pctValue(breadth.above/breadth.count*100,1)+" · "+marketDate(breadth.time) : "待更新")
-    +cryptoMetric("山寨币跑赢 BTC（24h）",outperform.length && fnum(btc?.day) && btc.time>=Date.now()-6*3600000 ? outperform.filter(row=>row.day>btc.day).length+" / "+outperform.length : "待更新");
-  by("crypto-dominance-trend").innerHTML = dominance.length>=2
-    ? '<p class="metric-meta">BTC 市占比 · '+dominance.length+' 日快照 '+spark(dominance.map(([,value])=>value))+'</p>' : "";
-  const supply = metrics.supply;
-  by("crypto-stable-supply").innerHTML = supply
-    ? '<dl class="crypto-metric-list">'+cryptoMetric("稳定币总市值",cryptoMoney(supply.rows.at(-1)[2]))+cryptoMetric("美元锚定币流通供应",compactUSD.format(supply.rows.at(-1)[1]))
-      +cryptoMetric("供应 7 日 / 30 日",pctMove(stableSupplyDelta(supply.rows,7))+" / "+pctMove(stableSupplyDelta(supply.rows,30)))
-      +'</dl><p class="metric-meta">DefiLlama · '+marketDate(supply.time)+' '+spark(supply.rows.slice(-30).map(([,v])=>v))+'</p>'
-    : '<p class="metric-meta">全市场流通供应 · 等待 DefiLlama 更新</p>';
-  by("crypto-flows").innerHTML = '<table class="crypto-subtable"><thead><tr><th>资产</th><th>最近一日</th><th>5 日</th><th>20 日</th></tr></thead><tbody>'+["BTC","ETH"].map(asset=>{
-    const rows = metrics["flow"+asset]?.rows ?? [];
-    const current = rows.at(-1);
-    const moves = [current?.total,flowSum(rows,5),flowSum(rows,20)];
-    return '<tr><th scope="row">'+asset+'<small class="crypto-price-date">'+marketDate(current?.time)+'</small></th>'
-      +moves.map(value=>'<td class="'+tone(value)+'">'+moneyMove(value)+'</td>').join("")+'</tr>';
-  }).join("")+'</tbody></table><p class="metric-meta">美元 · 已披露交易日</p>';
-  by("crypto-perps").innerHTML = '<table class="crypto-subtable"><thead><tr><th>永续</th><th>资金费率</th><th>未平仓</th><th>标记价溢价</th></tr></thead><tbody>'+["BTC","ETH"].map(asset=>{
-    const row = metrics["perp"+asset];
-    return '<tr><th scope="row">'+asset+'<small class="crypto-price-date">'+(row?timeAt(row.time)+" 北京":"待更新")+'</small></th><td>'
-      +pctMove(row?.funding,4)+(row?.interval>0?'<small class="crypto-price-date">'+fmt(row.interval,0)+' 小时</small>':"")+'</td><td>'+cryptoMoney(row?.interest)+'</td><td>'+pctMove(row?.premium,3)+'</td></tr>';
-  }).join("")+'</tbody></table><p class="metric-meta">Bybit USDT 永续 · 标记价相对指数价</p>'
-    +'<dl class="crypto-metric-list">'+["BTC","ETH"].map(asset=>{
-      const row = metrics["future"+asset];
-      return cryptoMetric(asset+" 最近到期期货基差",row ? pctMove(row.premium)+" · "+marketDate(row.expiry) : "待更新");
-    }).join("")+'</dl><p class="metric-meta">Deribit 交割合约 · 标记价相对预计交割指数价</p>';
+  const breadthNode = by("crypto-breadth");
+  const above = fnum(breadth?.above) && breadth.count>0;
+  breadthNode.innerHTML = (available.length ? cryptoMetric("24 小时上涨币种",available.filter(row=>row.day>0).length+" / "+available.length) : "")
+    +(above ? cryptoMetric("站上 50 日线",breadth.above+" / "+breadth.count) : "");
+  breadthNode.hidden = !breadthNode.innerHTML;
+
+  const historical = dominanceWindow(metrics.btcDominance?.rows ?? []);
+  const window = dominanceWindow(dominance);
+  const historyIsRecent = Date.parse(historical.at(-1)?.[0])>=Date.parse(window.at(-1)?.[0])-2*researchFeed.day;
+  const chart = historical.length>=2 && (window.length<2 || (historyIsRecent && historical.length>=window.length))
+    ? {rows:historical,source:"CoinMarketCap"} : {rows:window,source:"CoinPaprika 快照"};
+  renderDominanceTrend(chart);
+
+  const flowRows = ["BTC","ETH"].map(asset=>({asset,rows:metrics["flow"+asset]?.rows ?? []}));
+  const [,ethFlow] = flowRows;
+  const btc = flowRows[0].rows, last = btc.at(-1), eth = ethFlow.rows.at(-1);
+  const details = by("crypto-flow-details");
+  details.hidden = !flowRows.some(({rows})=>rows.length);
+  const totals = [[5,flowSum(btc,5)],[20,flowSum(btc,20)]];
+  const latest = last ?? eth;
+  by("crypto-flows").innerHTML = latest
+    ? shortStat((last?"BTC":"ETH")+" 最近披露日净流入",moneyMove(latest.total),marketDate(latest.time)+" · 美元",latest.total)
+      +'<dl class="crypto-metric-list">'+totals.filter(([,value])=>fnum(value)).map(([days,value])=>cryptoMetric("BTC "+days+" 日累计",moneyMove(value),value)).join("")
+      +(last && eth ? cryptoMetric("ETH 最近一日",moneyMove(eth.total),eth.total) : "")+'</dl>'
+    : '<p class="metric-meta">暂无已披露资金流</p>';
+  by("crypto-flow-table").innerHTML = '<table class="crypto-subtable"><thead><tr><th>资产</th><th>最近一日</th><th>5 日</th><th>20 日</th></tr></thead><tbody>'
+    +flowRows.filter(({rows})=>rows.length).map(({asset,rows})=>{
+      const current = rows.at(-1);
+      return '<tr><th scope="row">'+asset+'<small class="crypto-price-date">'+marketDate(current.time)+'</small></th>'
+        +[current.total,flowSum(rows,5),flowSum(rows,20)].map(value=>'<td class="'+tone(value)+'">'+moneyMove(value)+'</td>').join("")+'</tr>';
+    }).join("")+'</tbody></table>';
+  renderLeverage();
+}
+
+function fundingEightHours(row) {
+  return fnum(row?.funding) && fnum(row.interval) && row.interval>0 ? row.funding*8/row.interval : null;
+}
+
+function renderLeverage() {
+  const {perpBTC:btc,perpETH:eth,futureBTC:future} = researchState.metrics;
+  const rates = [fundingEightHours(btc),fundingEightHours(eth)];
+  const primary = fnum(rates[0]) ? 0 : fnum(rates[1]) ? 1 : -1;
+  const primaryLabel = ["BTC","ETH"][primary], primaryRow = [btc,eth][primary];
+  const secondary = primary===0 && fnum(rates[1]) ? cryptoMetric("ETH 资金费率 · 8 小时",pctMove(rates[1],4)) : "";
+  const interest = fnum(btc?.interest) ? cryptoMetric("BTC 未平仓",cryptoMoney(btc.interest)) : "";
+  const basis = fnum(future?.premium) ? cryptoMetric("BTC 期货基差",pctMove(future.premium,3)) : "";
+  by("crypto-perps").innerHTML = (primary>=0 ? shortStat(primaryLabel+" 永续资金费率 · 8 小时",pctMove(rates[primary],4),timeAt(primaryRow.time)+" 北京") : "")
+    +(interest || secondary || basis ? '<dl class="crypto-metric-list">'+interest+secondary+basis+'</dl>' : "")
+    +(primary<0 && !interest && !basis ? '<p class="metric-meta">暂无衍生品报价</p>' : "");
+  const rows = [["BTC",btc],["ETH",eth]].filter(([,row])=>row);
+  const dated = ["BTC","ETH"].map(asset=>{
+    const row = researchState.metrics["future"+asset];
+    return row && fnum(row.premium) ? cryptoMetric(asset+" 最近到期期货基差",pctMove(row.premium,3)+" · "+marketDate(row.expiry)) : "";
+  }).join("");
+  by("crypto-perp-table").innerHTML = (rows.length ? '<table class="crypto-subtable"><thead><tr><th>永续</th><th>原始费率</th><th>未平仓</th><th>标记价溢价</th></tr></thead><tbody>'
+    +rows.map(([asset,row])=>'<tr><th scope="row">'+asset+'<small class="crypto-price-date">'+timeAt(row.time)+" 北京"+'</small></th><td>'
+      +pctMove(row.funding,4)+'<small class="crypto-price-date">'+(row.interval>0?fmt(row.interval,0)+" 小时":"周期未披露")+'</small></td><td>'
+      +cryptoMoney(row.interest)+'</td><td>'+pctMove(row.premium,3)+'</td></tr>').join("")+'</tbody></table>' : "")
+    +(dated ? '<dl class="crypto-metric-list">'+dated+'</dl>' : "")
+    +'<p class="metric-meta">Bybit USDT 永续原始费率按实际周期披露，卡片按 8 小时线性换算。永续溢价为标记价相对指数价。Deribit 交割期货基差为标记价相对预计交割指数价。</p>';
+}
+
+function renderStableTape() {
+  const {supply} = researchState.metrics;
+  const pegs = ["USDT","USDC","DAI"].flatMap(symbol=>{
+    const row = cryptoState.quotes[symbol];
+    if (!(row?.price>0)) return [];
+    const deviation = Math.round((row.price-1)*100000)/1000;
+    return '<div title="'+esc("CoinPaprika · 较 1 美元 · "+dualTime(row.time))+'"><dt>'+symbol+'</dt><dd>'
+      +fmt(row.price,5)+' <span class="'+tone(deviation)+'">'+pctMove(deviation,3)+'</span></dd></div>';
+  });
+  const total = supply?.rows.at(-1);
+  const supplyData = total ? '<div title="'+esc("DefiLlama · "+marketDate(supply.time)+" UTC")+'"><dt>美元稳定币流通供应</dt><dd>'
+    +compactUSD.format(total[1])+'</dd></div>'+[7,30].map(days=>{
+      const change = stableSupplyDelta(supply.rows,days);
+      return fnum(change) ? '<div><dt>供应 '+days+' 日变化</dt><dd class="'+tone(change)+'">'+pctMove(change)+'</dd></div>' : "";
+    }).join("") : "";
+  by("crypto-stable").innerHTML = pegs.join("")+supplyData
+    || '<div><dt>暂无稳定币报价与流通供应数据</dt></div>';
 }
 
 function renderCryptoTape() {
@@ -166,14 +245,17 @@ function renderCryptoChain() {
   const dormant = data.SplyActPct1yr ? {time:data.SplyActPct1yr.time,value:(1-data.SplyActPct1yr.value)*100} : null;
   const rows = [
     ["MVRV",data.CapMVRVCur,value=>fmt(value,2)],["已实现价格",realized,cryptoMoney],
-    ["1 年未移动供应",dormant,pctValue],["长期持有者供应",data.longTermHolders,value=>compactUSD.format(value)+" BTC","Glassnode · 等待已授权数据"],["BTC 交易所余额",data.exchangeBalance,value=>fmt(value,0)+" BTC","Glassnode · 等待已授权数据"],
-    ["BTC 交易所日净流量",data.exchangeFlow,value=>plus(value,0)+" BTC","Glassnode · 等待已授权数据"],
-    ["日交易手续费",data.FeeTotNtv,value=>fmt(value,3)+" BTC"],["下一块费率",data.chainFees,value=>fmt(value,0)+" sat/vB"],
+    ["1 年未移动供应",dormant,pctValue],["长期持有者供应",data.longTermHolders,value=>compactUSD.format(value)+" BTC","Glassnode"],
+    ["BTC 交易所余额",data.exchangeBalance,value=>fmt(value,0)+" BTC","Glassnode"],
+    ["BTC 交易所日净流量",data.exchangeFlow,value=>plus(value,0)+" BTC","Glassnode"],
+    ["日交易手续费",data.FeeTotNtv,value=>fmt(value,3)+" BTC"],["下一块费率",data.chainFees,value=>fmt(value,0)+" sat/vB","mempool.space"],
     ["日活跃地址",data.AdrActCnt,value=>fmt(value,0)],["日交易笔数",data.TxCnt,value=>fmt(value,0)],
     ["ETH 活跃质押供应",data.stakingETH,value=>compactUSD.format(value)+" ETH"],
   ];
-  by("crypto-chain").innerHTML = rows.map(([name,row,format,empty])=>'<div><dt>'+esc(name)+'</dt><dd>'
-    +esc(row?format(row.value):"—")+'</dd><small>'+esc(row?marketDate(row.time)+" UTC":empty ?? "暂无公开读数")+'</small></div>').join("");
+  const available = rows.filter(([,row])=>fnum(row?.value) && fnum(row.time));
+  by("crypto-chain-section").hidden = !available.length;
+  by("crypto-chain").innerHTML = available.map(([name,row,format,source="Coin Metrics"])=>'<div title="'+esc(source)+'"><dt>'+esc(name)+'</dt><dd>'
+    +esc(format(row.value))+'</dd><small>'+esc(marketDate(row.time)+" UTC")+'</small></div>').join("");
 }
 
 function renderCryptoHoldings() {
@@ -195,8 +277,9 @@ function renderCryptoHoldings() {
   const exposure = cryptoExposure(report.values,report.nav);
   const {entries,weight,btcWeight,ethWeight,pricedCount} = exposure;
   const target = by("crypto-holdings");
+  by("crypto-holdings-section").hidden = !entries.length;
   if (!entries.length) {
-    target.textContent = "本机组合暂无加密持仓。";
+    target.replaceChildren();
     return;
   }
   const daily = entries.every(privateCoin);
@@ -246,7 +329,11 @@ function pearson(rows,minimum) {
 }
 
 function renderCryptoCross() {
+  if (!by("crypto-cross").open) return;
   const series = researchState.cross?.series ?? {};
+  const hasSessions = Boolean(series.SPY?.rows?.length);
+  by("crypto-cross-controls").hidden = !hasSessions;
+  by("crypto-cross-series-controls").hidden = !hasSessions;
   const maps = Object.fromEntries(crossKeys.map(key=>[key,new Map(series[key]?.rows ?? [])]));
   const aligned = comparableDates(series,crossView.frequency);
   const last = aligned.at(-1);
@@ -254,15 +341,20 @@ function renderCryptoCross() {
   const dates = aligned.filter(date=>date>=first);
   const isWeekly = crossView.frequency==="week";
   const minimum = isWeekly ? 4 : 10;
-  by("crypto-cross-status").textContent = last ? "截至 "+last+" · 新加坡 06:00 估值截点 · 加密用截至截点的小时线，证券用当日已发布复权收盘，DXY 用指数收盘。按美股交易日或已结束交易周对齐，格内显示配对样本数（至少 "+minimum+" 个）。"
-    : "等待对齐的历史行情。";
-  by("crypto-matrix").innerHTML = '<thead><tr><th scope="col">资产</th>'+crossKeys.map(key=>'<th scope="col">'+key+'</th>').join("")
-    +'</tr></thead><tbody>'+crossKeys.map(a=>'<tr><th scope="row">'+a+'</th>'+crossKeys.map(b=>{
-      const pairs = pairedReturns(maps[a],maps[b],dates,isWeekly);
-      const value = pearson(pairs,minimum);
-      return '<td'+(fnum(value)?' data-correlation="'+(value<0?"negative":"positive")+'" style="--strength:'+Math.round(Math.abs(value)*54)+'%"':"")
-        +'>'+fmt(value,2)+(pairs.length?'<small>'+pairs.length+' 样本</small>':"")+'</td>';
-    }).join("")+'</tr>').join("")+'</tbody>';
+  const measures = crossKeys.map(a=>crossKeys.map(b=>{
+    const pairs = pairedReturns(maps[a],maps[b],dates,isWeekly);
+    return {value:pearson(pairs,minimum),count:pairs.length};
+  }));
+  const hasCorrelation = measures.some((row,i)=>row.some(({value},j)=>i!==j && fnum(value)));
+  by("crypto-cross-status").textContent = hasCorrelation ? "截至 "+last+" · 按新加坡 06:00 估值截点对齐 · 每格至少 "+minimum+" 个配对收益样本"
+    : hasSessions ? "所选区间至少需要 "+minimum+" 个配对收益样本，当前无法计算跨资产相关性。" : "暂无对齐的历史行情。";
+  by("crypto-cross-status").title = hasCorrelation ? "加密用截至截点的小时线，证券用当日已发布复权收盘，DXY 用指数收盘。仅采样美股交易日或已结束的交易周。" : "";
+  by("crypto-matrix-wrap").hidden = !hasCorrelation;
+  by("crypto-matrix").innerHTML = hasCorrelation ? '<thead><tr><th scope="col">资产</th>'+crossKeys.map(key=>'<th scope="col">'+key+'</th>').join("")
+    +'</tr></thead><tbody>'+measures.map((row,i)=>'<tr><th scope="row">'+crossKeys[i]+'</th>'+row.map(({value,count})=>
+      '<td'+(fnum(value)?' data-correlation="'+(value<0?"negative":"positive")+'" style="--strength:'+Math.round(Math.abs(value)*54)+'%"':"")
+        +'>'+fmt(value,2)+(count?'<small>'+count+' 样本</small>':"")+'</td>'
+    ).join("")+'</tr>').join("")+'</tbody>' : "";
   const choice = by("crypto-cross-series").value;
   const rolling = choice==="rolling";
   let points = [];
@@ -279,12 +371,14 @@ function renderCryptoCross() {
     const values = dates.flatMap(date=>maps[a]?.get(date)>0 && maps[b]?.get(date)>0 ? [[Date.parse(date),maps[a].get(date)/maps[b].get(date)]] : []);
     points = values.map(([time,value])=>[time,value/values[0][1]*100]);
   }
-  crossView.plot = drawMarketPlot(by("crypto-cross-chart"),points,{base:rolling?0:100,axisWidth:51,
+  const target = by("crypto-cross-chart");
+  target.hidden = points.length<2;
+  crossView.plot = drawMarketPlot(target,target.hidden?[]:points,{base:rolling?0:100,axisWidth:51,
     pointLabel:row=>marketDate(row[0]),axisLabel:row=>marketDate(row[0]).slice(5),
     axisFormat:value=>fmt(value,rolling?2:1),quietCursor:true,
     breakLine:(before,row)=>Array.isArray(before) && Array.isArray(row) && row[0]-before[0]>(isWeekly&&!rolling?10:5)*researchFeed.day});
   showCrossPoint();
-  if (!points.length) by("crypto-cross-readout").textContent = "所选序列的配对样本不足。";
+  if (hasSessions && target.hidden) by("crypto-cross-readout").textContent = "所选序列的配对样本不足。";
 }
 function showCrossPoint() {
   plotPoint(crossView,by("crypto-cross-readout"),value=>fmt(value,2));

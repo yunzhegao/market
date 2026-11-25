@@ -23,6 +23,23 @@
     if (!response.ok) throw new Error("HTTP "+response.status);
     return html ? response.text() : response.json();
   }
+  async function historicalDominance(key, now=Date.now()) {
+    const query = new URLSearchParams({interval:"daily",time_start:new Date(now-30*day).toISOString(),
+      time_end:new Date(now).toISOString()});
+    const response = await fetch("https://pro-api.coinmarketcap.com/v1/global-metrics/quotes/historical?"+query,{
+      headers:{"X-CMC_PRO_API_KEY":key,Accept:"application/json"},signal:AbortSignal.timeout(7500)
+    });
+    if (!response.ok) throw new Error("Historical dominance unavailable");
+    const data = await response.json();
+    const quotes = Array.isArray(data.data?.quotes) ? data.data.quotes : [];
+    const readings = quotes.flatMap(row=>{
+      const time = Date.parse(row.timestamp), value = row.btc_dominance;
+      return valid(time) && time<=now && time>=now-31*day && valid(value) && value>0 && value<=100 ? [[time,value]] : [];
+    }).sort(([a],[b])=>a-b);
+    const rows = [...new Map(readings.map(([time,value])=>[iso(time),value]))].slice(-30);
+    if (rows.length<2) throw new Error("Insufficient dominance observations");
+    return {time:readings.at(-1)[0],rows};
+  }
   function parseFlows(html) {
     const result = new Map();
     let columns = [];
@@ -69,12 +86,19 @@
     return {time:rows.at(-1)[0],rows};
   }
   async function perpetual(asset) {
-    const raw = await read("https://api.bybit.com/v5/market/tickers?category=linear&symbol="+asset+"USDT");
+    const market = "https://api.bybit.com/v5/market/";
+    const query = "?category=linear&symbol="+asset+"USDT";
+    const raw = await read(market+"tickers"+query);
     const row = raw.result?.list?.[0];
     if (raw.retCode!==0 || !row || !valid(raw.time)) throw new Error("No perpetual");
     const mark = parse(row.markPrice), index = parse(row.indexPrice);
+    let interval = parse(row.fundingIntervalHour);
+    if (!(interval>0)) {
+      const info = await read(market+"instruments-info"+query).catch(()=>null);
+      if (info?.retCode===0) interval = parse(info.result?.list?.[0]?.fundingInterval)/60;
+    }
     return {time:raw.time,funding:parse(row.fundingRate)*100,interest:parse(row.openInterestValue),
-      premium:mark>0 && index>0 ? (mark/index-1)*100 : null,interval:parse(row.fundingIntervalHour)};
+      premium:mark>0 && index>0 ? (mark/index-1)*100 : null,interval:interval>0?interval:null};
   }
   async function futures(asset) {
     const raw = await read("https://www.deribit.com/api/v2/public/get_book_summary_by_currency?currency="+asset+"&kind=future");
@@ -156,5 +180,5 @@
     }
     return combined;
   }
-  globalThis.MARKET_CRYPTO_RESEARCH = {symbols,paths,issuerPages,day,iso,parseFlows,overview,merge};
+  globalThis.MARKET_CRYPTO_RESEARCH = {symbols,paths,issuerPages,day,iso,parseFlows,overview,merge,historicalDominance};
 })();

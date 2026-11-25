@@ -17,6 +17,7 @@ const loadScope = async scope => {
 };
 const inputs = await Promise.allSettled([
   loadScope("crypto-context"),loadScope("crypto-cross"),loadScope("crypto-breadth"),loadScope("crypto-filings"),
+  process.env.MARKET_CMC_API_KEY ? researchFeed.historicalDominance(process.env.MARKET_CMC_API_KEY) : null,
   feed.overview(),feed.chart("BTC",1440),feed.chart("ETH",1440),
   ...[feed.securities.slice(0,8),feed.securities.slice(8)].map(group=>{
     const url = new URL("https://snapshot.local/api/market?scope=world");
@@ -24,7 +25,7 @@ const inputs = await Promise.allSettled([
     return market.fetch(new Request(url)).then(response=>response.json());
   }),
 ]);
-const [metrics,cross,breadth,filings,overview,btc,eth,...equities] = inputs.map(result=>result.status==="fulfilled"?result.value:null);
+const [metrics,cross,breadth,filings,btcDominance,overview,btc,eth,...equities] = inputs.map(result=>result.status==="fulfilled"?result.value:null);
 const quotes = {...previous.quotes};
 for (const [asset,row] of Object.entries(overview?.quotes ?? {})) {
   if (!(quotes[asset]?.time>row.time)) quotes[asset] = row;
@@ -49,6 +50,7 @@ const research = {metrics:researchFeed.merge(researchFeed.merge(baseline.metrics
   breadth:breadth && !(earlier.breadth?.time>breadth.time) ? breadth : earlier.breadth,
   watchTrends:{...earlier.watchTrends,...breadth?.trends},
   filings:filings ? {time:filings.time,rows:{...earlier.filings?.rows,...filings.rows}} : earlier.filings};
+if (btcDominance) research.metrics = researchFeed.merge(research.metrics,{btcDominance});
 const temp = new URL("crypto-snapshot.tmp",file);
 await writeFile(temp,'"use strict";\nglobalThis.MARKET_CRYPTO_SNAPSHOT = '+JSON.stringify({quotes,global,fear,charts,securities,research})+';\n');
 await rename(temp,file);
