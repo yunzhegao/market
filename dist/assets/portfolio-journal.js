@@ -23,7 +23,7 @@ const emptyJournal = ()=>({entries:[],coverage:null});
 const journalToday = ()=>navDate(Date.now());
 
 function normalizeJournalHoldings(rows) {
-  if (!Array.isArray(rows) || rows.length>400 || rows.some(row=>!row || !["stock","etf"].includes(row.kind)
+  if (!Array.isArray(rows) || rows.length>400 || rows.some(row=>!row || !["stock","etf","crypto","stable"].includes(row.kind)
     || typeof row.account!=="string" || !cleanText(row.account) || typeof row.symbol!=="string" || !symbolValid(row.symbol) || !currencyValid(row.currency)
     || !fnum(row.quantity) || !(row.quantity>0))) throw new Error("对账持仓快照格式有误。");
   return navHoldings(rows.map(row=>({...row,account:cleanText(row.account)})),true);

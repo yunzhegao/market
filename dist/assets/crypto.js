@@ -50,6 +50,8 @@ function mergeCryptoData(data) {
 
 mergeCryptoData(globalThis.MARKET_CRYPTO_SNAPSHOT);
 mergeCryptoData(localRead(cryptoCacheKey,{}));
+mergeCryptoResearch(globalThis.MARKET_CRYPTO_SNAPSHOT?.research);
+mergeCryptoResearch(localRead("market-crypto-research-v1",{}));
 
 function paintMove(element, value, digits=2) {
   element.textContent = fnum(value) ? plus(value,digits)+"%" : "—";
@@ -69,22 +71,35 @@ function marketRows(list, columns, render) {
 const moveCell = value => '<td class="'+tone(value)+'">'+esc(pctText(value))+'</td>';
 
 function drawCryptoTables() {
-  by("crypto-watch-rows").innerHTML = marketRows(marketFeed.coins.filter(([symbol])=>cryptoWatch.includes(symbol)),8,([symbol,id,name])=>{
+  const query = by("crypto-search").value.trim().toLowerCase();
+  const matches = row=>!query || row.some(value=>value.toLowerCase().includes(query));
+  const coins = marketFeed.coins.filter(row=>(query || cryptoWatch.includes(row[0])) && matches(row));
+  by("crypto-watch-rows").innerHTML = marketRows(coins,9,([symbol,id,name])=>{
     const row = cryptoState.quotes[symbol] ?? {};
     const label = ["BTC","ETH"].includes(symbol)
       ? '<button type="button" class="text-button" data-chart-asset="'+symbol+'">'+symbol+'</button>'
       : '<a class="crypto-source" href="https://coinpaprika.com/coin/'+id+'/" target="_blank" rel="noopener noreferrer">'+symbol+'</a>';
     return '<th scope="row">'+label+'<small>'+esc(name)+'</small></th><td title="'+esc(dualTime(row.time))+'">'
-      +assetPrice(row.price)+'</td>'+moveCell(row.day)+moveCell(row.week)+moveCell(row.month)
+      +assetPrice(row.price)+'</td>'+moveCell(row.day)+'<td>'+watchSpark(symbol)+'</td>'+moveCell(row.week)+moveCell(row.month)
       +'<td>'+cryptoMoney(row.cap)+'</td><td>'+cryptoMoney(row.volume)+'</td>'+moveCell(row.drawdown);
   });
-  by("crypto-securities-rows").innerHTML = marketRows(marketFeed.securities,4,([symbol,name])=>{
+  by("crypto-securities-rows").innerHTML = marketRows(marketFeed.securities.filter(matches),5,([symbol,name])=>{
     const row = cryptoState.securities[symbol] ?? {};
     const move = row.previous>0 && row.price>0 ? (row.price/row.previous-1)*100 : null;
+    const flow = fundDailyFlow(symbol);
     const stamp = fnum(row.time) ? timeAt(row.time,"America/New_York") : "—";
     return '<th scope="row"><a class="crypto-source" href="https://finance.yahoo.com/quote/'+symbol+'/" target="_blank" rel="noopener noreferrer">'+symbol
-      +'</a><small>'+esc(name)+'</small></th><td>'+assetPrice(row.price)+'</td>'+moveCell(move)+'<td>'+esc(stamp)+'</td>';
+      +'</a><small>'+esc(name)+'</small></th><td>'+assetPrice(row.price)+'</td>'+moveCell(move)+'<td>'+esc(stamp)+'</td><td class="'+tone(flow?.total)+'" title="'+esc(marketDate(flow?.time))+'">'+moneyMove(flow?.total)+'</td>';
   });
+  if (!by("crypto-watch-rows").innerHTML) by("crypto-watch-rows").innerHTML = '<tr><td colspan="9">没有匹配的加密资产</td></tr>';
+  if (!by("crypto-securities-rows").innerHTML) by("crypto-securities-rows").innerHTML = '<tr><td colspan="5">没有匹配的证券</td></tr>';
+  const fundFees = {IBIT:.25,FBTC:.25,BITB:.20,ETHA:.25,FETH:.25};
+  by("crypto-fund-costs").innerHTML = '<thead><tr><th scope="col">基金</th><th scope="col">年费</th><th scope="col">资产规模</th><th scope="col">规模日期</th></tr></thead><tbody>'
+    +Object.entries(fundFees).map(([symbol,fee])=>{
+      const aum = researchState.metrics["aum"+symbol];
+      return '<tr><th scope="row"><a class="crypto-source" href="'+researchFeed.issuerPages[symbol]+'" target="_blank" rel="noopener noreferrer">'+symbol
+        +'</a></th><td>'+pctValue(fee)+'</td><td>'+cryptoMoney(aum?.value)+'</td><td>'+marketDate(aum?.time)+'</td></tr>';
+    }).join("")+'</tbody>';
   const prices = Object.values(cryptoState.securities);
   const bundled = prices.some(row=>row.source==="public-snapshot");
   const yahoo = prices.some(row=>row.source!=="public-snapshot");
@@ -210,6 +225,11 @@ function drawCryptoPage() {
   drawCryptoSignals();
   drawCryptoFear();
   drawCryptoChart();
+  renderResearchSignals();
+  renderCryptoTape();
+  renderCryptoChain();
+  renderCryptoFilings();
+  renderCryptoHoldings();
   const count = Object.keys(cryptoState.quotes).length;
   const recent = Object.values(cryptoState.quotes).some(row=>Math.abs(Date.now()-row.time)<20*60000);
   const usable = count || cryptoState.fear.length || Object.keys(cryptoState.charts).length;
@@ -240,6 +260,40 @@ function requestCryptoChart(asset,interval,force=false) {
   return task;
 }
 
+let researchRefresh;
+let lastHistoryCheck = 0;
+async function refreshResearch(force) {
+  if (researchRefresh) return researchRefresh;
+  const update = async (promise, transform)=>{
+    try {
+      const data = await promise;
+      mergeCryptoResearch(transform(data));
+    } catch {}
+  };
+  researchRefresh = (async ()=>{
+    const context = requestMarket("crypto-context").catch(()=>researchFeed.overview());
+    const tasks = [
+      update(context,metrics=>({metrics})),
+      update(latestMarketQuotes(Object.keys(tapeSymbols)),tape=>({tape})),
+      update(requestMarket("world-yields"),data=>({yield:dailyObservation(data.observations?.DGS10)})),
+    ];
+    if (force || Date.now()-lastHistoryCheck>60*60000) {
+      lastHistoryCheck = Date.now();
+      tasks.push(update(requestMarket("crypto-cross"),cross=>({cross})),
+        update(requestMarket("crypto-breadth"),breadth=>({breadth,watchTrends:breadth.trends})));
+    }
+    if (by("crypto-company-disclosure").open) tasks.push(refreshCryptoFilings(force));
+    await Promise.allSettled(tasks);
+    const current = cryptoState.global;
+    if (fnum(current?.dominance) && fnum(current.time)) mergeCryptoResearch({
+      dominance:[[marketDate(current.time),current.dominance]]
+    });
+    saveCryptoResearch();
+    renderCryptoCross();
+  })().finally(()=>{researchRefresh=null;});
+  return researchRefresh;
+}
+
 async function refreshCrypto(force=false) {
   if (cryptoUpdating || (!force && Date.now()-lastCryptoCheck<refreshEvery)) return;
   lastCryptoCheck = Date.now();
@@ -263,7 +317,7 @@ async function refreshCrypto(force=false) {
     .then(securities=>{mergeCryptoData({securities});return Object.keys(securities).length>0;}) : Promise.resolve(false);
   drawCryptoPage();
   try {
-    const results = await Promise.allSettled([overview,equities,...chartTasks]);
+    const results = await Promise.allSettled([overview,equities,...chartTasks,refreshResearch(force)]);
     if (results.some(result=>result.status==="fulfilled"&&result.value===true)) markRequest(lastCryptoCheck);
     localWrite(cryptoCacheKey,cryptoState);
   } finally {
@@ -287,6 +341,7 @@ function changeCryptoView(field,value) {
     if (cryptoIntervals[range]!==1440) requestCryptoChart(asset,1440);
   }
   drawCryptoSignals();
+  renderResearchSignals();
   drawCryptoChart();
 }
 
@@ -336,8 +391,44 @@ const cryptoResize = new ResizeObserver(entries=>{
 });
 cryptoResize.observe(by("crypto-chart"));
 cryptoResize.observe(by("crypto-fear-chart"));
+const autoCrypto = by("crypto-auto");
+autoCrypto.checked = localRead("market-crypto-auto-v1",true);
+autoCrypto.addEventListener("change",()=>{
+  localWrite("market-crypto-auto-v1",autoCrypto.checked);
+  if (autoCrypto.checked) {connectLiquidations();refreshCrypto(true);}
+  else pauseLiquidations();
+});
+by("crypto-search").addEventListener("input",drawCryptoTables);
+by("crypto-company-disclosure").addEventListener("toggle",event=>{if(event.currentTarget.open) refreshCryptoFilings();});
+by("crypto-cross-series").addEventListener("change",()=>{crossView.selected=null;renderCryptoCross();});
+for (const field of ["days","frequency"]) for (const button of document.querySelectorAll("[data-cross-"+field+"]")) {
+  button.addEventListener("click",()=>{
+    const attribute = "data-cross-"+field;
+    const value = button.getAttribute(attribute);
+    crossView[field] = field==="days"?Number(value):value;
+    crossView.selected = null;
+    for (const peer of document.querySelectorAll("["+attribute+"]")) peer.setAttribute("aria-pressed",String(peer===button));
+    renderCryptoCross();
+  });
+}
+bindPlot(by("crypto-cross-chart"),crossView,showCrossPoint);
+const crossResize = new ResizeObserver(()=>renderCryptoCross());
+crossResize.observe(by("crypto-cross-chart"));
 by("refresh").addEventListener("click",()=>refreshCrypto(true));
-document.addEventListener("visibilitychange",()=>{if (!document.hidden) refreshCrypto();});
-setInterval(()=>{if (!document.hidden) refreshCrypto();},refreshEvery);
+function autoRefreshCrypto() {
+  if (!document.hidden && autoCrypto.checked) {connectLiquidations();refreshCrypto();}
+}
+document.addEventListener("visibilitychange",()=>{if (document.hidden) pauseLiquidations();else autoRefreshCrypto();});
+window.addEventListener("storage",event=>{
+  if ([storageKeys.portfolio,"market-portfolio-quote-cache-v1","market-portfolio-fx-cache-v1","market-observation-live-prices"].includes(event.key)) renderCryptoHoldings();
+});
+setInterval(autoRefreshCrypto,refreshEvery);
 drawCryptoPage();
-refreshCrypto();
+renderCryptoCross();
+if (!readPortfolioBook() && !browserFile && location.hostname!=="" && !location.hostname.endsWith(".github.io")) {
+  requestSavedPortfolio().then(data=>{
+    if (data?.portfolio) {cryptoDatabaseBook=data.portfolio;renderCryptoHoldings();}
+  }).catch(()=>{});
+}
+if (autoCrypto.checked) autoRefreshCrypto();
+else pauseLiquidations();

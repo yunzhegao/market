@@ -57,7 +57,7 @@ npm run dev
 
 ## 发布到 GitHub Pages
 
-「加密市场」通过 `crypto.html` 访问。现货报价、市值和市占率来自 CoinPaprika，恐贪指数来自 Alternative.me。BTC 和 ETH 的 K 线优先使用 Kraken，缺项时使用 Coinbase，均标注出处和 UTC 时间。加密相关证券沿用网站的 Yahoo Finance 行情接口。页面公开行情可直接请求数据方，也可经 Worker 的 `crypto-overview` 和 `crypto-chart` 获取。发布流程运行 `node scripts/update_crypto_data.mjs` 更新随站快照。观察列表保存在当前浏览器。
+「加密市场」通过 `crypto.html` 访问。现货报价、市值和市占率来自 CoinPaprika，恐贪指数来自 Alternative.me。BTC 和 ETH 的 K 线优先使用 Kraken，缺项时使用 Coinbase，均标注出处和 UTC 时间。加密相关证券沿用网站的 Yahoo Finance 行情接口。页面经 Worker 获取 ETF 资金流、稳定币、衍生品、链上指标及对齐后的跨资产历史。发布流程运行 `node scripts/update_crypto_data.mjs` 更新公开快照。Bybit 清算只统计页面当前连接期间收到的 BTC、ETH 永续推送。Glassnode 长期持有者供应及交易所余额、流量需要具备相应权限的 Worker 密钥 `MARKET_GLASSNODE_API_KEY`。观察列表和含加密现货的组合保存在当前浏览器，可通过组合备份迁移。
 
 把源码放在 GitHub 仓库的 `main` 分支，并在 **Settings → Pages → Source** 选择 **GitHub Actions**。项目页面也可以放在普通的仓库子路径里。
 

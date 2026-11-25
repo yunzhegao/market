@@ -93,6 +93,78 @@ function renderRiskOverview(data) {
   renderJointStress();
 }
 
+function cryptoStressTargets(report) {
+  const targets = new Map();
+  for (const row of report?.values ?? []) {
+    if (!(row.quantity>0)) continue;
+    if (row.kind==="stable") targets.set("coin/"+row.symbol,coinCode(row.symbol)+" 脱锚");
+    if (privateCoin(row) && row.platform) targets.set("platform/"+row.platform,row.platform+" · 平台或托管损失");
+  }
+  return targets;
+}
+
+function cryptoTargetLoss(report,target,drop,assumptions={}) {
+  if (!(report?.nav>0) || !target) return null;
+  let extraLoss = 0, missing = false;
+  const [type] = target.split("/");
+  const key = target.slice(type.length+1);
+  for (const row of report.values) {
+    if (!(row.quantity>0)) continue;
+    const selected = type==="coin" ? row.kind==="stable" && row.symbol===key : privateCoin(row) && row.platform===key;
+    if (!selected) continue;
+    if (!fnum(row.marketValue)) {missing=true;continue;}
+    const asset = 1+(assumptions[row.bucket] ?? 0)/100;
+    const fx = row.currency===portfolio.base ? 1 : 1+(assumptions.fx ?? 0)/100;
+    extraLoss -= row.marketValue*asset*fx*drop/100;
+  }
+  return missing ? null : extraLoss;
+}
+
+function renderCryptoStress(before=simulationAnalysis?.before,after=simulationAnalysis?.after) {
+  const section = by("crypto-allocation-stress");
+  if (!section || !before) return;
+  const report = simulationRequested && after ? after : before;
+  const limit = analysisDrawdownLimit()*100;
+  const weight = +by("crypto-stress-weight").value, drop = +by("crypto-stress-drop").value;
+  by("crypto-stress-weight-label").textContent = fmt(weight,1)+"%";
+  by("crypto-stress-drop-label").textContent = "−"+fmt(drop,0)+"%";
+  const nav = report.validCount===report.values.length ? report.nav : null;
+  const values = cryptoAllocationStress(nav,weight,drop,limit);
+  const amount = value => fnum(value) ? fmt(value)+" "+portfolio.base : "—";
+  by("crypto-stress-summary").innerHTML = [
+    ["配置金额",amount(values.allocation)],["假设损失",amount(values.loss)],
+    ["组合跌幅",pctText(values.impact)],["占 "+fmt(limit,0)+"% 回撤上限",fnum(values.budget)?fmt(values.budget,1)+"%":"—"]
+  ].map(([label,value])=>'<div><dt>'+esc(label)+'</dt><dd>'+esc(value)+'</dd></div>').join("");
+
+  const select = by("crypto-stress-target"), selected = select.value;
+  const choices = new Map([...cryptoStressTargets(before),...cryptoStressTargets(after)]);
+  const markup = '<option value="">请选择稳定币或平台</option>'+[...choices].map(([key,label])=>
+    '<option value="'+esc(key)+'">'+esc(label)+'</option>').join("");
+  if (select.dataset.choices!==markup) {
+    select.innerHTML = markup;
+    select.dataset.choices = markup;
+    select.value = choices.has(selected) ? selected : "";
+  }
+  const input = by("crypto-stress-target-drop");
+  const target = select.value, targetDrop = Number(input.value);
+  const assumptions = jointStressScenario(selectedStressScenarios().map(i=>portfolio.scenarios[i]).filter(Boolean));
+  const shocksOn = selectedStressScenarios().some(i=>portfolio.scenarios[i]);
+  const formatted = (result,label)=>{
+    if (!result) return "";
+    const isolated = cryptoTargetLoss(result,target,targetDrop);
+    const extra = cryptoTargetLoss(result,target,targetDrop,assumptions);
+    const total = result.validCount===result.values.length && fnum(extra) ? stressResult(result,assumptions,portfolio.base)+extra : null;
+    const lines = [label+"单独冲击 "+amount(isolated)];
+    if (shocksOn) lines.push("含已勾选市场冲击 "+amount(total)+(fnum(total)?"（"+pctText(total/result.nav*100)+"）":""));
+    else if (fnum(isolated)) lines.push("占组合 "+pctText(isolated/result.nav*100));
+    return lines.join(" · ");
+  };
+  by("crypto-stress-target-result").textContent = !choices.size ? "有本机稳定币或已填平台的现货持仓后可计算。"
+    : !target ? "选择要测试的稳定币或托管平台，可与下方勾选的市场情景叠加。"
+    : input.value!=="" && targetDrop>=0 && targetDrop<=100 ? [formatted(before,"操作前"),formatted(after,"操作后")].filter(Boolean).join("　")
+    : "损失比例请输入 0% 至 100%。";
+}
+
 function jointStressDataset(current=riskView.report?.drawdown?.current) {
   const selected = selectedStressScenarios().filter(index=>Number.isInteger(index) && portfolio.scenarios[index]);
   if (!simulationAnalysis || !selected.length) return null;
@@ -125,6 +197,7 @@ function renderJointStress() {
   const format = (label,side)=>side ? label+" "+plus(side.impact)+" "+portfolio.base+"（"+pctText(side.return*100)+"），冲击后市值 "+fmt(side.shockedNav) : "";
   const notes = result ? [format("操作前",result.before),format("操作后",result.after)].filter(Boolean) : [];
   if (fnum(result?.projectedDrawdown)) notes.push("冲击后距所选风险区间高点 "+performancePercent(result.projectedDrawdown));
+  renderCryptoStress();
   by("joint-stress-result").textContent = notes.join(" · ") || (result ? "持仓估值不全，无法计算联合冲击。" : "勾选要同时施加的情景。各类价格冲击与外币冲击按乘积合并。");
 }
 
@@ -262,6 +335,10 @@ function exportAnalysis(mode) {
     schema:2,mode,base,account,demo,simulatedView:risk.scenario,
     units:{money:base,return:"小数（0.01 等于 1%）",concentration:"百分数（1 等于 1%）"},
     holdings:before?.values ?? [],
+    cryptoExposure:before ? (() => {
+      const {entries,...totals} = cryptoExposure(before.values,before.nav);
+      return {...totals,entries:entries.map(({symbol,form,risk,marketValue})=>({symbol,form,risk,marketValue}))};
+    })() : null,
     journalStatus:{coverage:journal.coverage,entries:journal.entries.length,pending:journal.entries.filter(row=>row.pending).length,
       ...(full && journal.brokerHistory ? {brokerHistory:{currency:"USD",periods:journal.brokerHistory.periods,
         ...(journal.brokerHistory.valuationChecks ? {valuationChecks:journal.brokerHistory.valuationChecks} : {})}} : {})},
@@ -315,6 +392,9 @@ function renderExportAvailability() {
 }
 
 function initPortfolioAnalysis() {
+  for (const id of ["crypto-stress-weight","crypto-stress-drop","crypto-stress-target","crypto-stress-target-drop"]) {
+    by(id)?.addEventListener("input",()=>renderCryptoStress());
+  }
   syncAnalysisRanges();
   const dialog = by("analysis-export-dialog");
   by("export-analysis").addEventListener("click",()=>{

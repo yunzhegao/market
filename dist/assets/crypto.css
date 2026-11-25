@@ -43,3 +43,42 @@
 @media (max-width:410px) {
   .crypto-signals,.crypto-watch-options {grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+.crypto-section {margin-block:.65rem}
+.crypto-side {display:grid;gap:.6rem}
+.crypto-tools input[type="search"] {width:min(45vw,17rem)}
+.crypto-tools input[type="checkbox"] {accent-color:var(--accent)}
+.crypto-tape {display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.5rem .9rem;margin-top:.4rem}
+.crypto-tape > div {border-top:1px solid var(--line);padding-top:.35rem;font-variant-numeric:tabular-nums}
+.crypto-tape :is(dt,small) {display:block;color:var(--muted);font-size:.68rem}
+.crypto-tape dd {font-weight:650;margin:0}
+.crypto-mini-line {display:inline-block;width:76px;height:25px;vertical-align:middle}
+.crypto-mini-line svg {width:100%;height:100%;overflow:visible}
+.crypto-mini-line path {fill:none;stroke:var(--accent);stroke-width:1.65px;vector-effect:non-scaling-stroke}
+.crypto-mini-line.up path {stroke:var(--up)}
+.crypto-mini-line.down path {stroke:var(--down)}
+.crypto-subtable {width:100%;border-collapse:collapse;font-size:.73rem;font-variant-numeric:tabular-nums}
+.crypto-subtable :is(td,th) {padding:.28rem .2rem;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+.crypto-subtable th:first-child {text-align:left}
+.crypto-subtable thead th {color:var(--muted);font-weight:550}
+.crypto-matrix {table-layout:fixed;width:100%;min-width:33rem;border-spacing:.2rem;border-collapse:separate}
+.crypto-matrix :is(td,th):not(:first-child) {text-align:center}
+.crypto-matrix td {border:0;border-radius:.28rem;font-variant-numeric:tabular-nums;background:color-mix(in srgb,var(--line) 24%,transparent)}
+.crypto-matrix td[data-correlation="positive"] {background:color-mix(in srgb,var(--accent) var(--strength),transparent)}
+.crypto-matrix td[data-correlation="negative"] {background:color-mix(in srgb,var(--down) var(--strength),transparent)}
+.crypto-matrix small {font-size:.64rem}
+.crypto-cross-options {margin-top:.85rem}
+.crypto-cross-options h3 {font-size:.88rem}
+.crypto-cross-chart {height:190px}
+.crypto-chain {grid-template-columns:repeat(auto-fit,minmax(165px,1fr))}
+.crypto-holding-meta {display:flex;flex-wrap:wrap;gap:.25rem .95rem;margin:.35rem 0}
+.crypto-price-date {color:var(--muted);font-size:.65rem}
+@media (max-width:580px) {
+  .crypto-tools {width:100%;justify-content:space-between}
+  .crypto-cross-chart {height:150px}
+  .crypto-signals {grid-template-columns:minmax(0,1fr)}
+}
+.crypto-quote .chart-panel {display:flex;flex:1;flex-direction:column}
+.crypto-quote .chart {flex:1;min-height:clamp(180px,28dvh,310px)}
+.crypto-subtable th small {display:block}
+#crypto-fund-costs {min-width:24rem}

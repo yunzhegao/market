@@ -1,7 +1,11 @@
 import "../dist/assets/adr-reference.js";
 import "../dist/assets/crypto-feed.js";
+import "../dist/assets/crypto-research-feed.js";
+
+import {cryptoCompanyFilings} from "./crypto-filings.mjs";
 
 const cryptoFeed = globalThis.MARKET_CRYPTO_FEED;
+const cryptoResearch = globalThis.MARKET_CRYPTO_RESEARCH;
 const cryptoRequests = new Map();
 
 async function cachedCrypto(key, load) {
@@ -678,7 +682,7 @@ function valuationCutoffs(from, to, now = Date.now()) {
   return Array.from({length:(last-first)/dayMs+1}, (_,i)=>first+i*dayMs);
 }
 
-function completedValuationBars(chart, cutoffs, barMs, adjusted = false) {
+function completedValuationBars(chart, cutoffs, barMs, adjusted = false, sessionOnly = false) {
   const closes = chart.indicators?.quote?.[0]?.close ?? [];
   const returns = adjusted ? chart.indicators?.adjclose?.[0]?.adjclose : closes;
   const splits = adjusted ? Object.values(chart.events?.splits ?? {}).filter(item=>finite(item.date)
@@ -715,26 +719,26 @@ function completedValuationBars(chart, cutoffs, barMs, adjusted = false) {
     const date = local(at).slice(0,10);
     const eligible = closeTime ? date+closeTime : new Date(Date.parse(date)+dayMs).toISOString().slice(0,10)+" 00:00:00";
     const unadjusted = splitsByDate.reduce((actual,[split,ratio])=>split>date ? actual*ratio : actual,close);
-    return {at,value,unadjusted,close,eligible};
+    return {at,value,unadjusted,close,eligible,date};
   });
   return cutoffs.flatMap(cutoff=>{
     const at = local(cutoff);
     while (index < daily.length && daily[index].at<=cutoff && daily[index].eligible<=at) index++;
     const bar = daily[index-1];
-    if (!bar || bar.at < cutoff-valuationCloseMaxAge) return [];
+    if (!bar || bar.at < cutoff-valuationCloseMaxAge || (sessionOnly && bar.date!==at.slice(0,10))) return [];
     const row = [valuationDate(cutoff),bar.value,bar.at<cutoff-valuationMaxAge?"carried-close":"close"];
     if (adjusted) row.push(bar.unadjusted,bar.close);
     return [row];
   });
 }
 
-async function valuationPrices(symbol, cutoffs, performance = false) {
+async function valuationPrices(symbol, cutoffs, performance = false, sessionOnly = false) {
   const fx = valuationFxCurrency(symbol);
   const [main,alternate] = yahooHosts;
   const daily = [[symbol,main,"1d",0],[fx?fx+"=X":symbol,alternate,"1d",0]];
   const attempts = performance ? daily : [[symbol,main,"15m",900000],[symbol,alternate,"15m",900000],
     [symbol,main,"60m",3600000],[fx?fx+"=X":symbol,alternate,"60m",3600000],...daily];
-  const adjusted = performance && !fx;
+  const adjusted = performance && !fx && symbol!=="DX-Y.NYB";
   const recent = Date.now()-35*dayMs;
   const dates = cutoffs.map(at=>[at,valuationDate(at)]);
   let rows = new Map();
@@ -748,7 +752,7 @@ async function valuationPrices(symbol, cutoffs, performance = false) {
       const chart = await yahooSymbolChart(ticker,host,interval,bounds);
       const code = chart.meta?.currency;
       if (!code || (fx && code!==fx) || (currency && code!==currency)) continue;
-      const next = completedValuationBars(chart,pending,barMs,adjusted);
+      const next = completedValuationBars(chart,pending,barMs,adjusted,sessionOnly);
       if (adjusted) {
         if (next.length>rows.size) {
           rows = new Map(next.map(row=>[row[0],row]));
@@ -762,6 +766,53 @@ async function valuationPrices(symbol, cutoffs, performance = false) {
     } catch {}
   }
   return rows.size ? {currency,rows:[...rows.values()].sort((a,b)=>a[0].localeCompare(b[0]))} : null;
+}
+
+async function cryptoCutoffHistory(symbol, cutoffs) {
+  const hour = 3600000;
+  const bounds = {period1:(cutoffs[0]-hour)/1000,period2:cutoffs.at(-1)/1000};
+  for (const host of yahooHosts) {
+    try {
+      const chart = await yahooSymbolChart(symbol,host,"60m",bounds);
+      const closes = chart.indicators?.quote?.[0]?.close ?? [];
+      const hourly = new Map((chart.timestamp ?? []).map((time,i)=>[time*1000+hour,closes[i]]));
+      const rows = cutoffs.flatMap(cutoff=>hourly.get(cutoff)>0 ? [[valuationDate(cutoff),hourly.get(cutoff)]] : []);
+      if (rows.length) return {rows};
+    } catch {}
+  }
+  return null;
+}
+
+async function cryptoCrossHistory() {
+  const to = valuationDate(Date.now()-30*60000-6*3600000);
+  const from = cryptoResearch.iso(Date.parse(to)-366*dayMs);
+  const cutoffs = valuationCutoffs(from,to);
+  const series = await gather(Object.keys(cryptoResearch.symbols),async key=>{
+    const symbol = cryptoResearch.symbols[key];
+    if (key==="BTC" || key==="ETH") return cryptoCutoffHistory(symbol,cutoffs);
+    const result = await valuationPrices(symbol,cutoffs,true,true);
+    return result ? {rows:result.rows.filter(row=>row[2]==="close").map(([date,value])=>[date,value])} : null;
+  });
+  if (!Object.values(series).some(result=>result?.rows.length)) throw new Error("No cross-asset data");
+  return {time:Date.now(),series};
+}
+
+async function cryptoBreadth() {
+  const symbols = cryptoFeed.coins.filter(([symbol])=>!["USDT","USDC","DAI"].includes(symbol)).map(([symbol])=>symbol);
+  const results = await gather(symbols,async symbol=>{
+    const chart = await yahooSymbolChart(symbol+"-USD",yahooHosts[0],"1d","3mo");
+    const prices = chart.indicators?.quote?.[0]?.close ?? [];
+    const complete = (chart.timestamp ?? []).flatMap((time,i)=>time*1000+dayMs<=Date.now() && prices[i]>0 ? [[time*1000,prices[i]]] : []).slice(-50);
+    if (complete.length!==50 || complete.some(([time],i)=>i && time-complete[i-1][0]!==dayMs)) return null;
+    const [time,price] = complete.at(-1);
+    const mean = complete.reduce((sum,[,close])=>sum+close,0)/50;
+    return {time,above:price>mean,rows:complete.slice(-8)};
+  });
+  const time = Math.max(...Object.values(results).map(row=>row?.time ?? 0));
+  const latest = Object.values(results).filter(row=>row?.time===time);
+  if (!latest.length) throw new Error("No breadth data");
+  return {time,above:latest.filter(row=>row.above).length,count:latest.length,total:symbols.length,
+    trends:Object.fromEntries(Object.entries(results).flatMap(([key,row])=>row ? [[key,row.rows]] : []))};
 }
 
 async function completeValuationFx(prices, cutoffs) {
@@ -870,6 +921,12 @@ async function portfolioRoute(request, env, ownerSite) {
       return reply({error:"持仓格式无效"},400);
     }
     const {navHistory,...draft} = data;
+    const hasPrivateCoins = rows => Array.isArray(rows) && rows.some(row=>["crypto","stable"].includes(row?.kind)
+      || ["platform","walletLabel","network","custody","staked","availableQuantity"].some(field=>row?.[field]!=null));
+    if (data.localOnly || hasPrivateCoins(draft.positions) || hasPrivateCoins(navHistory?.reference?.holdings)
+      || (Array.isArray(navHistory?.snapshots) && navHistory.snapshots.some(day=>hasPrivateCoins(day?.holdings) || hasPrivateCoins(day?.accounts)))) {
+      return reply({error:"含加密现货或托管明细的组合仅在本机保存"},400);
+    }
     if (bytes(JSON.stringify({...update,portfolio:draft})) > 200000) return reply({error:"持仓文件过大"},413);
     command = env.DB.prepare("UPDATE portfolio_book SET draft_json=?, updated_at=?, version=version+1 WHERE id=1 AND version=?")
       .bind(JSON.stringify(data),now,update.version);
@@ -907,6 +964,19 @@ export default {
         return Response.json(data,{headers});
       } catch {
         return Response.json({error:"crypto-overview"},{status:503,headers});
+      }
+    }
+    if (["crypto-context","crypto-cross","crypto-breadth","crypto-filings"].includes(scope)) {
+      const load = {"crypto-context":()=>cryptoResearch.overview({worker:true,glassnodeKey:env?.MARKET_GLASSNODE_API_KEY}),"crypto-cross":cryptoCrossHistory,"crypto-breadth":cryptoBreadth,"crypto-filings":cryptoCompanyFilings}[scope];
+      try {
+        const data = await cachedCrypto(scope,async()=>{
+          const result = await load();
+          if (!Object.keys(result).length) throw new Error("No crypto data");
+          return result;
+        });
+        return Response.json(data,{headers});
+      } catch {
+        return Response.json({error:scope},{status:503,headers});
       }
     }
     if (scope === "crypto-chart") {

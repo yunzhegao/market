@@ -1,11 +1,17 @@
 "use strict";
 
 const currencyList = ["USD","SGD","HKD","CNY","EUR","GBP","JPY","AUD","CAD","CHF","KRW","TWD","CNH"];
-const assetKinds = {stock:"个股", etf:"ETF", cash:"现金"};
+const assetKinds = {stock:"个股", etf:"ETF", crypto:"加密现货", stable:"稳定币", cash:"现金"};
 const buckets = {
   core:"核心股票", tech:"科技成长", bank:"金融", equity:"其他股票", gold:"黄金",
   duration:"长久期债券", reserve:"现金替代", cash:"现金",
+  btc:"比特币",eth:"以太坊",crypto:"其他加密及相关股票",stable:"稳定币",
 };
+const cryptoScenarios = [
+  {name:"加密市场回调",btc:-20,eth:-30,crypto:-25},
+  {name:"加密熊市",btc:-50,eth:-65,crypto:-60},
+  {name:"全球风险资产抛售",btc:-35,eth:-45,crypto:-40,core:-15,tech:-20,bank:-20,equity:-15},
+];
 const defaultScenarios = [
   {name:"全球股市回调", core:-12, tech:-20, bank:-15, equity:-12, gold:5, duration:4, reserve:0, cash:0, fx:0},
   {name:"银行信用承压", core:-8, tech:-10, bank:-22, equity:-8, gold:5, duration:4, reserve:0, cash:0, fx:0},
@@ -14,7 +20,7 @@ const defaultScenarios = [
 ];
 const defaultPortfolioName = "我的投资组合";
 const portfolioNameLimit = 60;
-const blankPortfolio = () => ({name:defaultPortfolioName,base:"USD", date:"", positions:[], weights:[], rates:{}, scenarios:structuredClone(defaultScenarios)});
+const blankPortfolio = () => ({name:defaultPortfolioName,base:"USD", date:"", positions:[], weights:[], rates:{}, scenarios:structuredClone([...defaultScenarios,...cryptoScenarios])});
 const numeric = value => typeof value === "number" && Number.isFinite(value);
 const numberFromInput = value => value !== "" && value != null && Number.isFinite(Number(value)) ? Number(value) : null;
 const cleanText = (value, limit = 90) => String(value ?? "").trim().slice(0, limit);
@@ -41,10 +47,17 @@ function normalizePortfolio(raw) {
   const positions = raw.positions.map((row, i) => {
     if (!row || typeof row !== "object") throw new Error("第 " + (i+1) + " 行持仓格式有误");
     const account = requiredText(row.account, "账户");
-    const kind = Object.hasOwn(assetKinds,row.kind) ? row.kind : "stock";
+    let kind = Object.hasOwn(assetKinds,row.kind) ? row.kind : "stock";
     const currency = cleanText(row.currency,3).toUpperCase();
     if (!currencyValid(currency)) throw new Error("请检查 " + account + " 的币种");
-    const symbol = kind === "cash" ? currency : cleanText(row.symbol,19).toUpperCase();
+    let symbol = kind === "cash" ? currency : cleanText(row.symbol,19).toUpperCase();
+    if (kind==="stock" && Object.hasOwn(cryptoFunds,symbol)) kind = "etf";
+    if (privateCoin({kind})) {
+      const code = symbol.replace(/-USD$/,"");
+      if (!/^[A-Z0-9]{2,12}$/.test(code) || currency!=="USD") throw new Error("加密现货与稳定币请填写币种代码及 USD 报价");
+      if (cryptoStable.has(code)) kind = "stable";
+      symbol = code+"-USD";
+    }
     if (!symbolValid(symbol)) throw new Error("请检查 " + account + " 的代码");
     const quantity = numberFromInput(row.quantity);
     const price = kind === "cash" ? 1 : numberFromInput(row.price);
@@ -53,10 +66,17 @@ function normalizePortfolio(raw) {
     if (!numeric(quantity) || quantity < 0 || [price,previous,cost].some(x => numeric(x) && x < 0)) {
       throw new Error("请检查 " + symbol + " 的数量、价格和成本");
     }
-    const bucket = kind === "cash" ? "cash" : Object.hasOwn(buckets,row.bucket) && row.bucket !== "cash" ? row.bucket
-      : orderAssets[symbol]?.[1] || "equity";
+    const bucket = cryptoAsset({kind,symbol})?.bucket ?? (kind === "cash" ? "cash"
+      : Object.hasOwn(buckets,row.bucket) && !["cash","btc","eth","crypto","stable"].includes(row.bucket) ? row.bucket
+      : orderAssets[symbol]?.[1] || "equity");
+    const availableQuantity = numberFromInput(row.availableQuantity), staked = numberFromInput(row.staked);
+    if (privateCoin({kind}) && [availableQuantity,staked].some(value=>value!==null && (value<0 || value>quantity))) {
+      throw new Error(symbol+" 的可用及质押数量须介于 0 和持有数量之间");
+    }
+    const privateDetails = privateCoin({kind}) ? {platform:cleanText(row.platform), walletLabel:cleanText(row.walletLabel),
+      network:cleanText(row.network), custody:cleanText(row.custody), staked, availableQuantity} : {};
     return {account, kind, currency, symbol, quantity, price, previous, cost, bucket,
-      name: cleanText(row.name), role: cleanText(row.role), available: row.available !== false};
+      name: cleanText(row.name), role: cleanText(row.role), available: row.available !== false, ...privateDetails};
   });
   const weights = (Array.isArray(raw.weights) ? raw.weights.slice(0,800) : []).map(row => {
     const fund = cleanText(row?.fund,19).toUpperCase();
@@ -84,7 +104,11 @@ function normalizePortfolio(raw) {
     if ([now,prev].some(x => numeric(x) && x <= 0)) throw new Error(currency + " 的汇率需要大于 0");
     if (numeric(now) || numeric(prev)) rates[currency] = {now,prev};
   }
-  const scenarios = (Array.isArray(raw.scenarios) ? raw.scenarios.slice(0,12) : defaultScenarios).map(row => {
+  const savedScenarios = Array.isArray(raw.scenarios) ? raw.scenarios.slice(0,12) : defaultScenarios;
+  const listedScenarios = raw.cryptoScenariosConfigured ? savedScenarios : [
+    ...savedScenarios,...cryptoScenarios.filter(item=>!savedScenarios.some(row=>row?.name===item.name))
+  ].slice(0,12);
+  const scenarios = listedScenarios.map(row => {
     const name = requiredText(row?.name, "情景名称");
     const result = {name};
     for (const field of [...Object.keys(buckets),"fx"]) {
@@ -98,7 +122,7 @@ function normalizePortfolio(raw) {
   const journalId = /^[a-f0-9]{32}$/.test(raw.journalId ?? "") ? raw.journalId : null;
   return {name:normalizePortfolioName(raw.name),base:currencyValid(raw.base) ? raw.base : "USD",
     date:/^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : "",
-    positions, weights, rates, scenarios, ...(navHistory ? {navHistory} : {}), ...(journalId ? {journalId} : {})};
+    positions, weights, rates, scenarios, cryptoScenariosConfigured:true, ...(cryptoLocalBook(raw) || positions.some(privateCoin) ? {localOnly:true} : {}), ...(navHistory ? {navHistory} : {}), ...(journalId ? {journalId} : {})};
 }
 
 function effectiveRates(auto, manual) {
@@ -216,15 +240,15 @@ function stressResult(analysis, scenario, base) {
   if (!analysis.validCount) return null;
   return analysis.values.reduce((total,row)=>{
     if (!numeric(row.marketValue)) return total;
-    const asset = scenario[row.bucket]/100;
-    const fx = row.currency === base ? 0 : scenario.fx/100;
+    const asset = (scenario[row.bucket] ?? 0)/100;
+    const fx = row.currency === base ? 0 : (scenario.fx ?? 0)/100;
     return total + row.marketValue*((1+asset)*(1+fx)-1);
   },0);
 }
 
 function jointStressScenario(scenarios) {
   return Object.fromEntries([...Object.keys(buckets),"fx"].map(key=>[key,
-    (scenarios.reduce((factor,row)=>factor*(1+row[key]/100),1)-1)*100,
+    (scenarios.reduce((factor,row)=>factor*(1+(row[key] ?? 0)/100),1)-1)*100,
   ]));
 }
 
@@ -233,9 +257,14 @@ function simulate(positions, orders) {
   const errors = [], cashChanges = new Map();
   let executed = 0;
   for (const order of orders) {
-    const account = cleanText(order.account), currency = order.currency, symbol = cleanText(order.symbol,19).toUpperCase();
+    const account = cleanText(order.account), currency = order.currency;
+    let symbol = cleanText(order.symbol,19).toUpperCase();
+    const [specifiedKind,specifiedBucket] = String(order.classification ?? "").split("/");
+    const code = coinCode(symbol);
+    const inferredCoin = cryptoCoins.has(code) || privateCoin({kind:specifiedKind});
+    if (inferredCoin && /^[A-Z0-9]{2,12}$/.test(code) && currency==="USD") symbol = code+"-USD";
     const quantity = numberFromInput(order.quantity), price = numberFromInput(order.price), fee = numberFromInput(order.fee) ?? 0;
-    if (!account || !symbol || !numeric(quantity) || !numeric(price) || !numeric(fee) || quantity <= 0 || price <= 0 || fee < 0 || !currencyValid(currency) || !symbolValid(symbol)) {
+    if (!account || !symbol || !numeric(quantity) || !numeric(price) || !numeric(fee) || quantity <= 0 || price <= 0 || fee < 0 || !currencyValid(currency) || !symbolValid(symbol) || (inferredCoin && currency!=="USD")) {
       errors.push("请补齐每笔操作的账户、代码、数量和成交价。");
       continue;
     }
@@ -255,11 +284,13 @@ function simulate(positions, orders) {
     } else {
       const other = matches[0] ?? after.find(row => row.kind !== "cash" && row.symbol === symbol && row.currency === currency);
       const [kind,bucket] = orderAssets[symbol] || ["stock","equity"];
-      const classification = String(order.classification ?? "").split("/");
-      const [specifiedKind,specifiedBucket] = classification;
+      const type = other?.kind ?? (inferredCoin ? (cryptoStable.has(code) || specifiedKind==="stable" ? "stable" : "crypto")
+        : Object.hasOwn(cryptoFunds,symbol) ? "etf"
+        : Object.hasOwn(assetKinds,specifiedKind) && specifiedKind!=="cash" ? specifiedKind : kind);
+      const group = cryptoAsset({kind:type,symbol})?.bucket ?? other?.bucket
+        ?? (Object.hasOwn(buckets,specifiedBucket) && specifiedBucket!=="cash" ? specifiedBucket : bucket);
       after.push({account,currency,symbol,quantity,price:other?.price ?? price,previous:null,cost:price,
-        kind:other?.kind ?? (Object.hasOwn(assetKinds,specifiedKind) && specifiedKind !== "cash" ? specifiedKind : kind),
-        bucket:other?.bucket ?? (Object.hasOwn(buckets,specifiedBucket) && specifiedBucket !== "cash" ? specifiedBucket : bucket),
+        kind:type,bucket:group,
         name:other?.name || "",role:other?.role || "",available:true});
     }
     const cashKey = JSON.stringify([account,currency]);

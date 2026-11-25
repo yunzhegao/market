@@ -763,9 +763,10 @@ window.addEventListener("storage",event=>{
 async function refreshWorldData() {
   refreshWorld();
   const request = ++watchPortfolioRequest;
+  if (readPortfolioBook()?.localOnly) return;
   try {
     const data=await requestSavedPortfolio();
-    if (request!==watchPortfolioRequest || !Array.isArray(data?.portfolio?.positions)) return;
+    if (request!==watchPortfolioRequest || readPortfolioBook()?.localOnly || !Array.isArray(data?.portfolio?.positions)) return;
     const previous=JSON.stringify(portfolioRows);
     portfolioRows=data.portfolio.positions;
     if (JSON.stringify(portfolioRows)!==previous) {

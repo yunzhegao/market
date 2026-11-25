@@ -112,7 +112,7 @@ const equitySectorNames = {
 };
 const sectorNames = {
   ...equitySectorNames,gold:"黄金",
-  duration:"长久期债券",reserve:"现金替代",cash:"现金",unknown:"行业未分类",
+  duration:"长久期债券",reserve:"现金替代",cash:"现金",btc:"比特币",eth:"以太坊",crypto:"其他加密现货",stable:"稳定币",unknown:"行业未分类",
 };
 const knownStockSectors = {
   AAPL:"technology",NVDA:"technology",MSFT:"technology",TSM:"technology",AVGO:"technology",
@@ -161,6 +161,7 @@ function createSectorLookup(state,isDemo) {
     if (cache.has(key)) return cache.get(key);
     let weights;
     if (row.kind==="cash") weights = [["cash",1]];
+    else if (privateCoin(row) || (row.kind==="etf" && Object.hasOwn(cryptoFunds,row.symbol))) weights = [[bucket,1]];
     else if (row.kind==="stock") weights = [[stockSector(row.symbol),1]];
     else if (["gold","duration","reserve"].includes(bucket)) weights = [[bucket,1]];
     else {

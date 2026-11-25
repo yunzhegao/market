@@ -401,3 +401,11 @@ a.world-cross-quote:is(:hover,:focus-visible) > span {color:var(--accent)}
 .journal-actions {margin-top:.42rem}
 .journal-status-line {display:flex;flex-wrap:wrap;gap:.2rem .55rem;align-items:baseline;color:var(--muted)}
 
+
+.crypto-stress-fields {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem;margin-block:.55rem}
+.crypto-stress-fields label {color:var(--muted);font-size:.76rem}
+.crypto-stress-fields output {float:right;color:var(--ink);font-weight:650}
+.crypto-stress-fields input {display:block;width:100%;accent-color:var(--accent);margin-top:.25rem}
+#crypto-stress-summary {grid-template-columns:repeat(2,minmax(0,1fr))}
+#crypto-stress-target-drop {width:4.5rem}
+@media (max-width:500px) {.crypto-stress-fields {grid-template-columns:1fr}}

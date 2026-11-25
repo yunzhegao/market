@@ -83,13 +83,15 @@ async function writePortfolio(next, restoredHistory = null) {
   const previous = restoredHistory ?? savedHistory
     ?? portfolio.navHistory ?? migrateNavHistory();
   next = recordNavHoldings(next,previous);
-  if (databaseVersion !== null) {
+  if (databaseVersion !== null && !cryptoLocalBook(next)) {
     const {journalId,...databasePortfolio} = next;
     await updateDatabase("save",{portfolio:databasePortfolio});
   }
-  portfolio = next;
-  demo = false;
   const saved = localWrite(storageKeys.portfolio,next);
+  if (!saved && cryptoLocalBook(next)) throw new Error("浏览器未允许保存本机组合，请保留组合备份。");
+  portfolio = next;
+  if (cryptoLocalBook(next)) databaseVersion = null;
+  demo = false;
   navStorageError = !saved;
   persistenceWarning = saved || databaseVersion !== null ? "" : "浏览器未允许本地保存。可用「导出备份」保留修改。";
   if (saved) window.dispatchEvent(new Event(portfolioEvent));
@@ -143,6 +145,7 @@ function downloadJson(filename, data) {
 }
 
 function publicPositions() {
+  if (cryptoLocalBook(portfolio)) return [];
   const rates = effectiveRates(autoRates,portfolio.rates);
   const report = analyzePortfolio(portfolioRowsNow(),rates);
   if (!report.nav || report.validCount!==report.values.length) return [];
@@ -176,9 +179,10 @@ async function publicSnapshot() {
 }
 
 async function openDatabase() {
+  if (cryptoLocalBook(portfolio)) return;
   try {
     const data = await requestSavedPortfolio();
-    if (!data) return;
+    if (!data || cryptoLocalBook(portfolio) || cryptoLocalBook(readPortfolioBook())) return;
     if (data.portfolio) {
       const state = normalizePortfolio({...data.portfolio,journalId:undefined});
       const local = readPortfolioBook();
@@ -324,6 +328,17 @@ function showExposure(report,sectors) {
     : "暂无可计价的股票型 ETF。");
   renderEtfDisclosures(funds,portfolio.weights,disclosures);
   renderSectorExposure(report,sectors);
+  const crypto = cryptoExposure(report.values,report.nav);
+  const section = by("portfolio-crypto-exposure");
+  if (section) {
+    section.hidden = !crypto.entries.length;
+    by("portfolio-crypto-weights").textContent = "加密相关 "+ratio(crypto.weight)+" · BTC 现货及 ETF "+ratio(crypto.btcWeight)
+      +" · ETH 现货及 ETF "+ratio(crypto.ethWeight)+" · "+crypto.pricedCount+"/"+crypto.entries.length+" 项已计价";
+    table("portfolio-crypto-table",["持仓","资产形式","底层风险","组合占比"],crypto.entries
+      .sort((a,b)=>(b.marketValue??-1)-(a.marketValue??-1)).map(row=>[
+        td(esc(row.code)),td(esc(row.form)),td(esc(row.risk)),td(ratio(navWeight(row.marketValue,report.nav))),
+      ]));
+  }
 }
 
 function compare(before,after,beforeConcentration,afterConcentration) {
@@ -393,6 +408,7 @@ function showSimulation(report,rates,sectors=sectorExposure(report,portfolio,dem
   }
   const stress = portfolio.scenarios.map(scenario=>({name:scenario.name,assumptions:scenario,
     before:stressResult(report,scenario,portfolio.base),after:after ? stressResult(after,scenario,portfolio.base) : null}));
+  if (by("crypto-allocation-stress")) renderCryptoStress(report,after);
   if (by("stress-table")) table("stress-table",["情景","操作前影响","操作后影响","变化"],stress.map(({name,before,after:next})=>{
     const display = (value,nav)=>signedMoney(value)+(nav>0&&fnum(value)?'<small>'+pctText(value/nav*100)+'</small>':"");
     return [td(esc(name)),td(display(before,report.nav)),td(display(next,after?.nav)),td(fnum(before)&&fnum(next)?signedMoney(next-before):"—")];
@@ -422,7 +438,7 @@ function draw() {
   const overrides = Object.keys(portfolio.rates).length;
   if (overrides) status.push(overrides+" 个币种使用手动汇率");
   by("portfolio-status").textContent = status.filter(Boolean).join(" · ");
-  if (by("public-portfolio")) by("public-portfolio").hidden = demo || !report.values.length;
+  if (by("public-portfolio")) by("public-portfolio").hidden = demo || !report.values.length || cryptoLocalBook(portfolio);
   by("export-analysis").hidden = !report.values.length && !portfolio.navHistory;
   if (report.values.length) {
     const sectors = sectorExposure(report,portfolio,demo);
@@ -440,12 +456,14 @@ function draw() {
 function orderClassification(value) {
   const classes = {"":"自动识别"};
   for (const [bucket,label] of Object.entries(buckets)) {
-    if (bucket === "cash") continue;
+    if (["cash","btc","eth","crypto","stable"].includes(bucket)) continue;
     classes[(["core","gold","duration","reserve"].includes(bucket)?"etf":"stock")+"/"+bucket] = label;
   }
   classes["etf/tech"]="科技 ETF";
   classes["etf/bank"]="金融 ETF";
   classes["etf/equity"]="其他股票 ETF";
+  classes["crypto/crypto"]="加密现货";
+  classes["stable/stable"]="稳定币";
   return options(classes,value);
 }
 
@@ -505,6 +523,10 @@ const positionsFields = [
   ["previous","前收","number"],["cost","平均成本","number"],["bucket","压力分类","bucket"],
   ["role","组合角色","text"],["available","可动用","check"],
 ];
+const privateCoinFields = [
+  ["platform","平台","text"],["walletLabel","钱包别名","text"],["network","网络","text"],
+  ["custody","托管方式","text"],["availableQuantity","可用数量","number"],["staked","质押数量","number"],
+];
 const weightsFields = [["fund","ETF","text"],["member","成分代码","text"],["weight","基金内权重 %","number"],["date","日期","date"],["source","来源","text"]];
 const stressFields = [["name","情景","text"],...Object.entries(buckets).map(([key,label])=>[key,label,"number"]),["fx","外币均变动 %","number"]];
 const rateFields = [["currency","每 1 USD 兑换","readonly"],["now","当期汇率","number"],["prev","前期汇率","number"]];
@@ -547,8 +569,15 @@ function editorField(row, key, label, kind) {
 function renderEditor() {
   const {mode,rows,date,name} = editor;
   const {prompt,fields} = modes[mode];
-  const contents = rows.map((row,i)=>'<tr data-edit-row="'+i+'">'+fields.map(([key,label,kind])=>td(editorField(row,key,label,kind))).join("")
-    +(mode==="rates"?"":td('<button type="button" class="compact-button" aria-label="删除这一行" data-delete-row>×</button>'))+'</tr>').join("");
+  const contents = rows.map((row,i)=>{
+    const cells = fields.map(([key,label,kind])=>td(editorField(row,key,label,kind))).join("");
+    const remove = mode==="rates" ? "" : td('<button type="button" class="compact-button" aria-label="删除这一行" data-delete-row>×</button>');
+    const details = mode==="positions" && privateCoin(row) ? '<tr data-edit-row="'+i+'"><td colspan="'+(fields.length+1)
+      +'"><details class="work-method"><summary>平台、钱包与质押（本机）</summary><div class="editor-fields">'
+      +privateCoinFields.map(([key,label,kind])=>'<label>'+esc(label)+editorField(row,key,label,kind)+'</label>').join("")
+      +'</div></details></td></tr>' : "";
+    return '<tr data-edit-row="'+i+'">'+cells+remove+'</tr>'+details;
+  }).join("");
   by("editor-content").innerHTML = '<p class="work-note">'+esc(prompt)+'</p>'
     +(mode==="positions"?'<div class="editor-fields"><label>组合名称<input type="text" id="portfolio-name" maxlength="'+portfolioNameLimit+'" value="'+esc(name)+'"></label>'
       +'<label>价格日期（留空用最新汇率）<input type="date" id="portfolio-date" value="'+esc(date)+'"></label></div>':"")
@@ -564,6 +593,11 @@ by("editor-content").addEventListener("input",event=>{
   if (!field) return;
   const row = editor.rows[Number(input.closest("[data-edit-row]").dataset.editRow)];
   row[field] = input.type==="checkbox" ? input.checked : input.value;
+  if (editor.mode==="positions" && field==="kind") {
+    if (privateCoin(row)) row.currency = "USD";
+    renderEditor();
+    by("editor-content").querySelector('[data-edit-row="'+editor.rows.indexOf(row)+'"] [data-field="kind"]')?.focus();
+  }
 });
 by("editor-content").addEventListener("click",event=>{
   if (!event.target.closest("[data-delete-row]")) return;
@@ -827,6 +861,7 @@ by("export-public")?.addEventListener("click",()=>{
 for (const [id,mode] of [["publish-portfolio","publish"],["unpublish-portfolio","unpublish"]]) {
   by(id)?.addEventListener("click",async()=>{
     try {
+      if (mode==="publish" && cryptoLocalBook(portfolio)) throw new Error("含加密现货的组合仅在本机保存。");
       await updateDatabase(mode,{positions:mode==="publish"?publicPositions():[]});
       await publicSnapshot();
       publicDialog.close();
@@ -864,7 +899,10 @@ const portfolioDatabaseReady = openDatabase().finally(()=>{
   refreshNavHistory(portfolio,livePortfolio,demo);
   refreshPerformance();
 });
-if (!portfolioRiskPage) publicSnapshot();
+if (!portfolioRiskPage) {
+  publicSnapshot();
+  if (location.hash==="#edit-positions") edit("positions");
+}
 window.addEventListener("storage",event=>{
   if (portfolio.journalId && event.key===portfolioJournalPrefix+portfolio.journalId) renderPortfolioJournal();
   if (event.key===analysisRateKey) {

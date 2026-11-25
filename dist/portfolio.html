@@ -7,21 +7,22 @@
   <meta name="theme-color" content="#ffffff" id="theme-color">
   <title>个人投资组合分析 · 市场观察</title>
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./assets/styles.css">
-  <link rel="stylesheet" href="./assets/workspace.css?v=import-2">
+  <link rel="stylesheet" href="./assets/styles.css?v=movement-colors-1">
+  <link rel="stylesheet" href="./assets/workspace.css?v=crypto-1">
   <script defer src="./assets/live-config.js"></script>
   <script defer src="./assets/world-snapshot.js"></script>
-  <script defer src="./assets/portfolio-model.js?v=journal-1"></script>
+  <script defer src="./assets/crypto-exposure.js?v=1"></script>
+  <script defer src="./assets/portfolio-model.js?v=crypto-1"></script>
   <script defer src="./assets/workspace.js?v=risk-1"></script>
-  <script defer src="./assets/allocation.js?v=performance-1"></script>
+  <script defer src="./assets/allocation.js?v=crypto-1"></script>
   <script defer src="./assets/market-plot.js?v=performance-2"></script>
   <script defer src="./assets/portfolio-nav.js?v=reconciled-nav-1"></script>
-  <script defer src="./assets/portfolio-etf.js?v=disclosures-2"></script>
+  <script defer src="./assets/portfolio-etf.js?v=crypto-1"></script>
   <script defer src="./assets/performance-model.js?v=risk-1"></script>
   <script defer src="./assets/portfolio-performance.js?v=statement-performance-1"></script>
-  <script defer src="./assets/portfolio-analysis.js?v=statement-performance-1"></script>
-  <script defer src="./assets/portfolio-journal.js?v=statement-performance-1"></script>
-  <script defer src="./assets/portfolio.js?v=reconciled-nav-1"></script>
+  <script defer src="./assets/portfolio-analysis.js?v=crypto-1"></script>
+  <script defer src="./assets/portfolio-journal.js?v=crypto-1"></script>
+  <script defer src="./assets/portfolio.js?v=crypto-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -199,6 +200,12 @@
             <div class="section-line"><div class="exposure-heading"><h2 id="exposure-title">穿透与重叠敞口</h2><span id="lookthrough-coverage" class="coverage-label"></span></div><button type="button" id="edit-exposure" class="text-button">编辑 ETF 成分权重</button></div>
             <div class="work-table-wrap"><table class="work-table" id="lookthrough-table"></table></div>
             <p class="work-note" id="lookthrough-note"></p>
+            <details class="work-method" id="portfolio-crypto-exposure" hidden>
+              <summary>加密资产穿透</summary>
+              <p class="work-note" id="portfolio-crypto-weights"></p>
+              <div class="work-table-wrap"><table class="work-table" id="portfolio-crypto-table"></table></div>
+              <p class="work-note">现货 ETF 按市值估算对应的币种敞口。加密相关股票单列经营或融资风险。</p>
+            </details>
             <details class="work-method" open>
               <summary>行业穿透</summary>
               <div class="work-table-wrap"><table class="work-table" id="sector-exposure-table"></table></div>

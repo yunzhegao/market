@@ -2,7 +2,7 @@
 
 const allocationColors = {
   core:"#3e81dc", tech:"#7855c0", bank:"#cc8452", equity:"#387c88",
-  gold:"#be9b44", duration:"#86a45d", cash:"#687d9c",
+  gold:"#be9b44", duration:"#86a45d", cash:"#687d9c", ...cryptoBucketColors,
 };
 let allocationMode = "category";
 let allocationReport;

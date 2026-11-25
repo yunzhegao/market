@@ -7,20 +7,21 @@
   <meta name="theme-color" content="#ffffff" id="theme-color">
   <title>投资组合绩效与风险分析 · 市场观察</title>
   <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./assets/styles.css">
-  <link rel="stylesheet" href="./assets/workspace.css?v=import-2">
+  <link rel="stylesheet" href="./assets/styles.css?v=movement-colors-1">
+  <link rel="stylesheet" href="./assets/workspace.css?v=crypto-1">
   <script defer src="./assets/live-config.js"></script>
   <script defer src="./assets/world-snapshot.js"></script>
-  <script defer src="./assets/portfolio-model.js?v=journal-1"></script>
+  <script defer src="./assets/crypto-exposure.js?v=1"></script>
+  <script defer src="./assets/portfolio-model.js?v=crypto-1"></script>
   <script defer src="./assets/workspace.js?v=risk-1"></script>
   <script defer src="./assets/market-plot.js?v=performance-2"></script>
   <script defer src="./assets/portfolio-nav.js?v=reconciled-nav-1"></script>
-  <script defer src="./assets/portfolio-etf.js?v=disclosures-2"></script>
+  <script defer src="./assets/portfolio-etf.js?v=crypto-1"></script>
   <script defer src="./assets/performance-model.js?v=risk-1"></script>
   <script defer src="./assets/portfolio-performance.js?v=statement-performance-1"></script>
-  <script defer src="./assets/portfolio-analysis.js?v=statement-performance-1"></script>
-  <script defer src="./assets/portfolio-journal.js?v=statement-performance-1"></script>
-  <script defer src="./assets/portfolio.js?v=reconciled-nav-1"></script>
+  <script defer src="./assets/portfolio-analysis.js?v=crypto-1"></script>
+  <script defer src="./assets/portfolio-journal.js?v=crypto-1"></script>
+  <script defer src="./assets/portfolio.js?v=crypto-1"></script>
   <script src="/assets/site-visits.js?v=4" defer></script>
 </head>
 <body>
@@ -194,6 +195,20 @@
             <div class="section-line"><h2 id="stress-title">压力情景</h2><button type="button" class="text-button" id="edit-stress">调整冲击</button></div>
             <div class="work-table-wrap"><table class="work-table" id="stress-table"></table></div>
             <p class="work-note">冲击由你设定。外币冲击相对当前显示币种。</p>
+            <details class="work-method" id="crypto-allocation-stress">
+              <summary>加密资产配置压力测试</summary>
+              <div class="crypto-stress-fields">
+                <label>假设配置占比 <output id="crypto-stress-weight-label"></output><input id="crypto-stress-weight" type="range" min="0" max="100" step="0.5" value="3"></label>
+                <label>假设价格跌幅 <output id="crypto-stress-drop-label"></output><input id="crypto-stress-drop" type="range" min="0" max="100" value="60"></label>
+              </div>
+              <dl class="risk-overview" id="crypto-stress-summary" aria-live="polite"></dl>
+              <p class="work-note">假设用现金或现金替代换入加密资产，其余持仓价格不变。</p>
+              <div class="page-tools">
+                <label>额外冲击 <select id="crypto-stress-target" aria-label="选择稳定币或平台"><option value="">请选择稳定币或平台</option></select></label>
+                <label>损失比例 % <input id="crypto-stress-target-drop" type="number" min="0" max="100" step="1" value="10"></label>
+              </div>
+              <p class="work-note" id="crypto-stress-target-result" aria-live="polite"></p>
+            </details>
             <details class="work-method" id="joint-stress">
               <summary>联合压力测试</summary>
               <div class="page-tools" id="joint-stress-choices"></div>
